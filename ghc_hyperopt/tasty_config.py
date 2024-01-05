@@ -23,14 +23,8 @@ class TastyConfig:
     timeout: None | str = None
     """Timeout for individual tests (suffixes: ms,s,m,h; default: s)."""
 
-    list_tests: bool = False
-    """Do not run the tests; just print their names."""
-
-    num_threads: None | int = None
+    num_threads: Literal[1] = 1
     """Number of threads to use for tests execution (default: # of cores/capabilities)."""
-
-    csv: None | str = None
-    """File to write results in CSV format."""
 
     stdev: None | str = None
     """

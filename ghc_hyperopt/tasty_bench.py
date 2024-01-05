@@ -1,5 +1,5 @@
 import csv
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
@@ -65,7 +65,7 @@ class TastyBench:
     rts_config: RTSConfig
     """The RTS configuration used for the benchmarks."""
 
-    benchmarks: Mapping[str, TastyBenchmark]
+    benchmarks: Sequence[TastyBenchmark]
     """The benchmarks."""
 
     process_info: ProcessInfo
@@ -78,32 +78,26 @@ class TastyBench:
         tasty_config: TastyConfig,
         rts_config: RTSConfig,
     ) -> Self:
-        assert tasty_config.csv is not None
-
-        # File cleanup
-        logger.info("Removing existing benchmark result run...")
-        Path(tasty_config.csv).unlink(missing_ok=True)
-        logger.info("Removed existing benchmark result run.")
-
         try:
             process_info = ProcessInfo.do(
                 args=[
                     executable_path.as_posix(),
+                    "--quiet",
+                    "--csv=/dev/stdout",
                     *tasty_config.to_flags(),
                     *rts_config.to_flags(),
                 ],
-                project_path=Path(tasty_config.csv).parent,
+                project_path=executable_path.parent,
                 logger=logger,
             )
         except ProcessError as e:
             raise TastyBenchError(*e.args)
 
         # Read the results
-        benchmarks: Mapping[str, TastyBenchmark]
-        with open(tasty_config.csv, "r", newline="", encoding="utf-8") as csvfile:
-            benchmarks = {
-                benchmark.name: benchmark for benchmark in map(TastyBenchmark.from_csv, csv.DictReader(csvfile))
-            }
+        benchmarks: Sequence[TastyBenchmark] = sorted(
+            map(TastyBenchmark.from_csv, csv.DictReader(process_info.stdout.splitlines())),
+            key=lambda b: b.name,
+        )
 
         # Return the build info
         return cls(

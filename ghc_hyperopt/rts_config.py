@@ -17,6 +17,14 @@ GIGABYTE: int = 1024 * MEGABYTE
 class RTSConfigError(RuntimeError):
     """An error caused by an invalid RTS configuration."""
 
+    broken_invariant: str
+    """The invariant that was broken."""
+
+    def __init__(self, broken_invariant: str) -> None:
+        """Initialize the error."""
+        self.broken_invariant = broken_invariant
+        super().__init__(self.broken_invariant)
+
 
 @dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
 class RTSConfig:

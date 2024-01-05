@@ -1,0 +1,34 @@
+cabal-version:   3.4
+name:            FibHaskell
+version:         0.1.0.0
+license:         BSD-3-Clause
+copyright:       Connor Baker 2024
+maintainer:      Connor Baker <connorbaker01@gmail.com>
+author:          Connor Baker <connorbaker01@gmail.com>
+tested-with:     ghc ==9.8
+homepage:        https://github.com/ConnorBaker/ghc_hyperopt
+bug-reports:     https://github.com/ConnorBaker/ghc_hyperopt
+synopsis:        Benchmark for fibonacci numbers
+description:     Test for ghc_hyperopt.
+category:        Tools
+build-type:      Simple
+
+source-repository head
+    type:     git
+    location: https://github.com/ConnorBaker/ghc_hyperopt.git
+    subdir:   FibHaskell
+
+benchmark bench-fib
+    type:               exitcode-stdio-1.0
+    main-is:            BenchFib.hs
+    default-language:   GHC2021
+    default-extensions:
+        AllowAmbiguousTypes ApplicativeDo InstanceSigs LambdaCase
+        ScopedTypeVariables
+
+    ghc-options:
+        -Wall -fproc-alignment=64
+
+    build-depends:
+        base,
+        tasty-bench

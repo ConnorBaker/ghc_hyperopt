@@ -4,11 +4,13 @@ env:
 clean:
 	rm -rf artifacts
 
-run:
+tune-ghc:
 	python3 -m ghc_hyperopt \
-		--project-path FibHaskell \
+		--project-path "${PWD}/FibHaskell" \
 		--component-name bench:bench-fib \
-		--artifact-dir artifacts \
+		--artifact-dir "${PWD}/artifacts" \
+		--tune-ghc \
+		--tune-ghc-all
 
 format:
 	ruff format \

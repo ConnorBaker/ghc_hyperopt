@@ -14,8 +14,7 @@ def suggest_from[T](choices: Sequence[T]) -> Callable[[str, Trial], T]:
     return lambda name, trial: trial.suggest_categorical(name=name, choices=choices)  # type: ignore
 
 
-def suggest_bool() -> Callable[[str, Trial], bool]:
-    return suggest_from([False, True])
+suggest_bool: Callable[[str, Trial], bool] = suggest_from([False, True])
 
 
 def get_logger(name: str) -> logging.Logger:

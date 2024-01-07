@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Self
 
 from ghc_hyperopt.process_info import ProcessError, ProcessInfo
-from ghc_hyperopt.rts_config import RTSConfig
+from ghc_hyperopt.rts_config import RtsConfig
 from ghc_hyperopt.tasty_config import TastyConfig
 from ghc_hyperopt.utils import get_logger
 
@@ -62,7 +62,7 @@ class TastyBench:
     tasty_config: TastyConfig
     """The tasty configuration used for the benchmarks."""
 
-    rts_config: RTSConfig
+    rts_config: RtsConfig
     """The RTS configuration used for the benchmarks."""
 
     benchmarks: Sequence[TastyBenchmark]
@@ -76,7 +76,7 @@ class TastyBench:
         cls: type[Self],
         executable_path: Path,
         tasty_config: TastyConfig,
-        rts_config: RTSConfig,
+        rts_config: RtsConfig,
     ) -> Self:
         try:
             process_info = ProcessInfo.do(

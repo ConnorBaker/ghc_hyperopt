@@ -1,25 +1,27 @@
 import logging
 import sys
 from argparse import Namespace
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import optuna
 import tqdm
-from optuna.trial import FrozenTrial, Trial
+from optuna.study import Study, StudyDirection
+from optuna.trial import Trial
 
 from ghc_hyperopt.cli import get_arg_parser
 from ghc_hyperopt.ghc.config import GhcConfig
 from ghc_hyperopt.ghc.info import GhcInfo
 from ghc_hyperopt.ghc.options import GhcOption, get_all_ghc_options, get_all_ghc_options_optuna_samplers
 from ghc_hyperopt.ghc.tuner import GhcTuner
+from ghc_hyperopt.tasty.benchmark import TastyBenchmarkOptimizationChoices
 from ghc_hyperopt.utils import SampleFn, get_logger
 
 logger = get_logger(__name__)
 
 
-def tune_ghc_options(args: Namespace) -> None:
+def mk_ghc_config(args: Namespace) -> GhcConfig:
     # Get info about GHC to check support for options
     ghc_info = GhcInfo.get()
 
@@ -45,61 +47,76 @@ def tune_ghc_options(args: Namespace) -> None:
         else:
             ghc_fixed_options[name] = option
 
-    project_path: Path = args.project_path
-    if not project_path.exists():
-        raise FileNotFoundError(project_path)
-
-    # Make sure the artifact directory exists
-    artifact_dir: Path = args.artifact_dir
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    db_path = artifact_dir / "ghc_hyperopt.db"
-    create_baseline = not db_path.exists()
-    logger.info(
-        "Database %s found, %s creating a new baseline",
-        "was not" if create_baseline else "was",
-        "now" if create_baseline else "not",
-    )
-
-    # Add stream handler of stdout to show the messages
-    optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
-    study = optuna.create_study(
-        study_name="ghc_hyperopt",
-        direction="minimize",
-        storage=optuna.storages.RDBStorage(
-            url="sqlite:///" + db_path.as_posix(),
-        ),
-        load_if_exists=True,
-    )
-
-    ghc_config = GhcConfig(
+    return GhcConfig(
         optimization=2,
         rtsopts="all",
         ghc_fixed_options=ghc_fixed_options,
         ghc_tuneable_options=ghc_tuneable_options,
     )
 
-    baseline = GhcTuner.create_baseline(
-        study=study,
+
+def mk_study(artifact_dir: Path, optimization_directions: Sequence[StudyDirection]) -> Study:
+    # Make sure the artifact directory exists
+    db_path = artifact_dir / "ghc_hyperopt.db"
+
+    # Add stream handler of stdout to show the messages
+    optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
+    return optuna.create_study(
+        study_name="ghc_hyperopt",
+        directions=optimization_directions,
+        storage=optuna.storages.RDBStorage(
+            url="sqlite:///" + db_path.as_posix(),
+        ),
+        load_if_exists=True,
+    )
+
+
+def tune_ghc_options(args: Namespace) -> None:
+    project_path: Path = args.project_path
+    if not project_path.exists():
+        raise FileNotFoundError(project_path)
+
+    artifact_dir: Path = args.artifact_dir
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    component_name: str = args.component_name
+
+    optimization_choices = TastyBenchmarkOptimizationChoices(
+        time_mean=True,
+        mem_allocated=False,
+        mem_copied=False,
+    )
+
+    # TODO: This always creates a new baseline -- we want to query the GhcTuner to see if there's already a baseline
+    # in the database.
+    # Get our baseline
+    logger.info("Running baseline build and benchmarks")
+    (baseline_build_info, baseline_bench_info) = GhcTuner.run_baseline(
         project_path=project_path,
-        component_name=args.component_name,
+        component_name=component_name,
         artifact_dir=artifact_dir,
     )
-    match baseline:
-        case FrozenTrial():
-            pass
-        case error:
-            raise error
+
+    # Get the optimization directions (minimize for each optimization choice for each benchmark)
+    optimization_directions = baseline_bench_info.get_optimization_directions(optimization_choices)
+
+    ghc_config = mk_ghc_config(args)
+    study = mk_study(artifact_dir, optimization_directions)
+    baseline = GhcTuner.register_baseline(study, baseline_build_info, baseline_bench_info, optimization_choices)
 
     ghc_tuner = GhcTuner(
         project_path=args.project_path,
         component_name=args.component_name,
         artifact_dir=args.artifact_dir,
         ghc_config=ghc_config,
+        optimization_choices=optimization_choices,
         baseline_trial_number=baseline.number,
     )
 
     # Don't use a progress bar if the log level is WARNING or lower
     range_fn = tqdm.trange if logger.getEffectiveLevel() > logging.WARNING else range
+
+    logger.info("Beginning study")
 
     # Begin the study
     for _ in range_fn(10):
@@ -108,10 +125,8 @@ def tune_ghc_options(args: Namespace) -> None:
     print("Number of finished trials: ", len(study.trials))
     print("Baseline trial: ")
     print(study.trials[baseline.number])
-    print("Best trial: ")
-    print(study.best_trial)
-    print("Best params: ")
-    print(study.best_params)
+    print("Best trials: ")
+    print(study.best_trials)
 
 
 if __name__ == "__main__":

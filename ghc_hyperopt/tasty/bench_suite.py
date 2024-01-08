@@ -3,9 +3,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Self, final
 
+from optuna.study import StudyDirection
+
 from ghc_hyperopt.process_info import ProcessError, ProcessInfo
 from ghc_hyperopt.rts_config import RtsConfig
-from ghc_hyperopt.tasty.benchmark import TastyBenchmark
+from ghc_hyperopt.tasty.benchmark import TastyBenchmark, TastyBenchmarkOptimizationChoices
 from ghc_hyperopt.tasty.error import TastyBenchmarkParseError, TastyBenchSuiteRuntimeError
 from ghc_hyperopt.tasty_config import TastyConfig
 from ghc_hyperopt.utils import OurBaseModel
@@ -70,3 +72,18 @@ class TastyBenchSuite(OurBaseModel):
             benchmarks=benchmarks,
             process_info=process_info,
         )
+
+    def get_optimization_directions(
+        self,
+        optimization_choices: TastyBenchmarkOptimizationChoices,
+    ) -> Sequence[StudyDirection]:
+        return list(optimization_choices.get_optimization_directions()) * len(self.benchmarks)
+
+    def gather_benchmark_results(
+        self,
+        optimization_choices: TastyBenchmarkOptimizationChoices,
+    ) -> Sequence[int]:
+        results = []
+        for benchmark in self.benchmarks:
+            results.extend(optimization_choices.gather_benchmark_results(benchmark))
+        return results

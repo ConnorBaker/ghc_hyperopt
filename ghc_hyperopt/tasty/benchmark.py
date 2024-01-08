@@ -1,5 +1,7 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Self, final
+
+from optuna.study import StudyDirection
 
 from ghc_hyperopt.tasty.error import TastyBenchmarkParseError
 from ghc_hyperopt.utils import OurBaseModel, get_logger
@@ -66,3 +68,39 @@ class TastyBenchmark(OurBaseModel):
             return TastyBenchmarkParseError(f"Could not create {cls.__name__} from {row}").with_traceback(
                 e.__traceback__
             )
+
+
+@final
+class TastyBenchmarkOptimizationChoices(OurBaseModel):
+    """The choices for the values to optimize."""
+
+    time_mean: bool
+    """Whether to minimize the mean time taken to run."""
+
+    mem_allocated: bool
+    """Whether to minimize the allocated memory."""
+
+    mem_copied: bool
+    """Whether to minimize the copied memory."""
+
+    # TODO: We do this manually to ensure consistent ordering, even across runs. Is there a better way?
+
+    def get_optimization_directions(self) -> Sequence[StudyDirection]:
+        directions = []
+        if self.time_mean:
+            directions.append(StudyDirection.MINIMIZE)
+        if self.mem_allocated:
+            directions.append(StudyDirection.MINIMIZE)
+        if self.mem_copied:
+            directions.append(StudyDirection.MINIMIZE)
+        return directions
+
+    def gather_benchmark_results(self, benchmark: TastyBenchmark) -> Sequence[int]:
+        results = []
+        if self.time_mean:
+            results.append(benchmark.time.mean)
+        if self.mem_allocated:
+            results.append(benchmark.mem.allocated)
+        if self.mem_copied:
+            results.append(benchmark.mem.copied)
+        return results

@@ -12,6 +12,14 @@ tune-ghc:
 		--tune-ghc \
 		--tune-ghc-all
 
+tune-ghc-vector:
+	python3 -m ghc_hyperopt \
+		--project-path "${PWD}/vector/vector" \
+		--component-name bench:algorithms \
+		--artifact-dir "${PWD}/artifacts" \
+		--tune-ghc \
+		--tune-ghc-all
+
 format:
 	ruff format \
 		--preview

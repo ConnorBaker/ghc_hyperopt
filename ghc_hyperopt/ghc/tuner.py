@@ -1,4 +1,5 @@
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import final, overload
 
@@ -12,6 +13,7 @@ from ghc_hyperopt.ghc.config import GhcConfig, GhcConfigError
 from ghc_hyperopt.process_info import ProcessError
 from ghc_hyperopt.rts_config import RtsConfig, RtsConfigError
 from ghc_hyperopt.tasty.bench_suite import TastyBenchSuite
+from ghc_hyperopt.tasty.benchmark import TastyBenchmarkOptimizationChoices
 from ghc_hyperopt.tasty.error import (
     TastyBenchmarkParseError,
     TastyBenchSuiteRuntimeError,
@@ -47,16 +49,58 @@ class GhcTuner(OurBaseModel):
     ghc_config: GhcConfig
     """The GHC configuration."""
 
+    optimization_choices: TastyBenchmarkOptimizationChoices
+    """The optimization choices."""
+
     baseline_trial_number: int
     """The baseline trial."""
 
     @staticmethod
-    def create_baseline(
-        study: Study,
+    def run_baseline(
         project_path: Path,
         component_name: str,
         artifact_dir: Path,
-    ) -> GhcTunerMultipleBaselinesError | TastyBenchmarkParseError | TastyBenchSuiteRuntimeError | FrozenTrial:
+    ) -> tuple[CabalBuild, TastyBenchSuite]:
+        match GhcTuner._build(
+            flags=["-rtsopts=all"],
+            project_path=project_path,
+            component_name=component_name,
+            artifact_dir=artifact_dir,
+        ):
+            case CabalBuildError() as error:
+                raise error
+            case CabalBuild() as build_info:
+                pass
+
+        match GhcTuner._bench(build_info):
+            case TastyBenchmarkParseError() | TastyBenchSuiteRuntimeError() as error:
+                shutil.rmtree(build_info.build_dir)
+                raise error
+            case TastyBenchSuite() as bench_info:
+                pass
+
+        # Remove the build directory
+        shutil.rmtree(build_info.build_dir)
+
+        return build_info, bench_info
+
+    @staticmethod
+    def register_baseline(
+        study: Study,
+        build_info: CabalBuild,
+        bench_info: TastyBenchSuite,
+        optimization_choices: TastyBenchmarkOptimizationChoices,
+    ) -> FrozenTrial:
+        """
+        Register the baseline trial.
+        """
+        trial = study.ask()
+        trial.set_user_attr("baseline", True)
+        GhcTuner._register_build(trial, build_info)
+        return GhcTuner._register_bench(study, trial, bench_info, optimization_choices)
+
+    @staticmethod
+    def check_for_baseline(study: Study) -> None | FrozenTrial:
         """
         Create or get the baseline trial.
         """
@@ -65,82 +109,42 @@ class GhcTuner(OurBaseModel):
 
         match baselines:
             case []:
-                logger.info("No baseline found, creating a new one")
-                pass
+                return None
             case [baseline]:
                 return baseline
             case _:
-                return GhcTunerMultipleBaselinesError("Multiple baselines found; delete the database and try again")
-
-        trial = study.ask()
-        trial.set_user_attr("baseline", True)
-
-        build_info = GhcTuner._build(
-            trial,
-            project_path=project_path,
-            component_name=component_name,
-            artifact_dir=artifact_dir,
-            ghc_config=GhcConfig(ghc_fixed_options={}, ghc_tuneable_options={}),
-        )
-        match build_info:
-            case CabalBuildError():
-                raise CabalBuildError("Failed to build baseline")
-            case CabalBuild():
-                pass
-
-        bench_info = GhcTuner._bench(trial, build_info)
-        match bench_info:
-            case TastyBenchmarkParseError() | TastyBenchSuiteRuntimeError() as error:
-                return error
-            case TastyBenchSuite():
-                pass
-
-        # Remove the build directory
-        shutil.rmtree(build_info.build_dir)
-
-        # Return the total time taken
-        frozen_trial = study.tell(
-            trial,
-            bench_info.process_info.time_total,
-            state=optuna.trial.TrialState.COMPLETE,
-        )
-
-        tqdm.tqdm.write(f"Baseline trial finished with value: {frozen_trial.value}")
-        return frozen_trial
+                raise GhcTunerMultipleBaselinesError("Multiple baselines found; delete the database and try again")
 
     @overload
     @staticmethod
     def _build(
-        trial: Trial,
+        flags: Sequence[str],
         *,
         self: "GhcTuner",
         project_path: None = None,
         component_name: None = None,
         artifact_dir: None = None,
-        ghc_config: None = None,
     ) -> CabalBuildError | CabalBuild: ...
 
     @overload
     @staticmethod
     def _build(
-        trial: Trial,
+        flags: Sequence[str],
         *,
         self: None = None,
         project_path: Path,
         component_name: str,
         artifact_dir: Path,
-        ghc_config: GhcConfig,
     ) -> CabalBuildError | CabalBuild: ...
 
     @staticmethod
     def _build(
-        trial: Trial,
+        flags: Sequence[str],
         *,
         self: "None | GhcTuner" = None,
         project_path: None | Path = None,
         component_name: None | str = None,
         artifact_dir: None | Path = None,
-        ghc_config: None | GhcConfig = None,
     ) -> CabalBuildError | CabalBuild:
         """
         Build the project with the given flags.
@@ -149,67 +153,71 @@ class GhcTuner(OurBaseModel):
             project_path = self.project_path
             component_name = self.component_name
             artifact_dir = self.artifact_dir
-            ghc_config = self.ghc_config
 
         assert project_path is not None
         assert component_name is not None
         assert artifact_dir is not None
-        assert ghc_config is not None
 
         # Build the project
-        result = CabalBuild.do(
+        return CabalBuild.do(
             project_path=project_path,
             component_name=component_name,
             artifact_dir=artifact_dir,
-            flags=ghc_config.get_flags(trial),
+            flags=flags,
         )
 
-        match result:
-            case CabalBuildError():
-                return result
-            case CabalBuild():
-                pass
-
-        # Add the build info to the trial
-        trial.set_user_attr("build.component_name", result.component_name)
-        for key in ["time_total", "mem_peak"]:
-            trial.set_user_attr(f"build.process_info.{key}", getattr(result.process_info, key))
-
-        return result
-
     @staticmethod
-    def _bench(
+    def _register_build(
         trial: Trial,
         build_info: CabalBuild,
-    ) -> TastyBenchmarkParseError | TastyBenchSuiteRuntimeError | TastyBenchSuite:
+    ) -> None:
+        """
+        Register the build info to the trial.
+        """
+        trial.set_user_attr("build.component_name", build_info.component_name)
+        for key in ["time_total", "mem_peak"]:
+            trial.set_user_attr(f"build.process_info.{key}", getattr(build_info.process_info, key))
+
+    @staticmethod
+    def _bench(build_info: CabalBuild) -> TastyBenchmarkParseError | TastyBenchSuiteRuntimeError | TastyBenchSuite:
         """
         Run the benchmarks.
         """
         # Run the benchmark
         # TODO: Should RTS be fixed in this way, or should there be a configuration we pass in?
-        result = TastyBenchSuite.do(
+        return TastyBenchSuite.do(
             executable_path=build_info.executable_path,
             tasty_config=TastyConfig(),
             rts_config=RtsConfig(),
         )
 
-        match result:
-            case TastyBenchmarkParseError() | TastyBenchSuiteRuntimeError() as error:
-                return error
-            case TastyBenchSuite():
-                pass
-
+    @staticmethod
+    def _register_bench(
+        study: Study,
+        trial: Trial,
+        bench_info: TastyBenchSuite,
+        optimization_choices: TastyBenchmarkOptimizationChoices,
+    ) -> FrozenTrial:
+        """
+        Register the benchmark info to the trial.
+        """
         # Add the overall benchmark info to the trial
         for key in ["time_total", "mem_peak"]:
-            trial.set_user_attr(f"bench.process_info.{key}", getattr(result.process_info, key))
+            trial.set_user_attr(f"bench.process_info.{key}", getattr(bench_info.process_info, key))
 
         # Add each benchmark to the trial
-        for benchmark in result.benchmarks:
+        for benchmark in bench_info.benchmarks:
             name = benchmark.name
             for key, value in benchmark.model_dump(exclude={"none"}).items():
                 trial.set_user_attr(f"bench.benchmark.{name}.{key}", value)
 
-        return result
+        # Return the total time taken
+        frozen_trial = study.tell(trial, bench_info.gather_benchmark_results(optimization_choices))
+
+        tqdm.tqdm.write(f"Trial {frozen_trial.number} finished with values: {frozen_trial.values}")
+        tqdm.tqdm.write(f"Best trials are {" ".join(str(trial.number) for trial in study.best_trials)}")
+
+        return frozen_trial
 
     @staticmethod
     def _prune(study: Study, trial: Trial, error: Exception) -> FrozenTrial:
@@ -248,27 +256,16 @@ class GhcTuner(OurBaseModel):
         """
         trial = study.ask()
 
-        build_info = GhcTuner._build(trial, self=self)
-        match build_info:
+        match GhcTuner._build(self.ghc_config.get_flags(trial), self=self):
             case CabalBuildError() as error:
                 return self._prune(study, trial, error)
-            case CabalBuild():
-                pass
+            case CabalBuild() as build_info:
+                self._register_build(trial, build_info)
 
-        bench_info = self._bench(trial, build_info)
-        match bench_info:
+        match self._bench(build_info):
             case TastyBenchmarkParseError() | TastyBenchSuiteRuntimeError() as error:
+                shutil.rmtree(build_info.build_dir)
                 return self._prune(study, trial, error)
-            case TastyBenchSuite():
-                pass
-
-        # Remove the build directory
-        shutil.rmtree(build_info.build_dir)
-
-        # Return the total time taken
-        frozen_trial = study.tell(trial, bench_info.process_info.time_total)
-
-        tqdm.tqdm.write(f"Trial {frozen_trial.number} finished with value: {frozen_trial.value}")
-        tqdm.tqdm.write(f"Best trial is {study.best_trial.number} with value: {study.best_trial.value}")
-
-        return frozen_trial
+            case TastyBenchSuite() as bench_info:
+                shutil.rmtree(build_info.build_dir)
+                return self._register_bench(study, trial, bench_info, self.optimization_choices)

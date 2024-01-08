@@ -175,8 +175,8 @@ class GhcTuner(OurBaseModel):
         Register the build info to the trial.
         """
         trial.set_user_attr("build.component_name", build_info.component_name)
-        for key in ["time_total", "mem_peak"]:
-            trial.set_user_attr(f"build.process_info.{key}", getattr(build_info.process_info, key))
+        trial.set_user_attr("build.process_info.time_total", build_info.process_info.time_total)
+        trial.set_user_attr("build.process_info.mem_peak", build_info.process_info.mem_peak)
 
     @staticmethod
     def _bench(build_info: CabalBuild) -> TastyBenchmarkParseError | TastyBenchSuiteRuntimeError | TastyBenchSuite:
@@ -202,14 +202,17 @@ class GhcTuner(OurBaseModel):
         Register the benchmark info to the trial.
         """
         # Add the overall benchmark info to the trial
-        for key in ["time_total", "mem_peak"]:
-            trial.set_user_attr(f"bench.process_info.{key}", getattr(bench_info.process_info, key))
+        trial.set_user_attr("bench.process_info.time_total", bench_info.process_info.time_total)
+        trial.set_user_attr("bench.process_info.mem_peak", bench_info.process_info.mem_peak)
 
         # Add each benchmark to the trial
         for benchmark in bench_info.benchmarks:
             name = benchmark.name
-            for key, value in benchmark.model_dump(exclude={"none"}).items():
-                trial.set_user_attr(f"bench.benchmark.{name}.{key}", value)
+            trial.set_user_attr(f"bench.benchmark.{name}.time.mean", benchmark.time.mean)
+            trial.set_user_attr(f"bench.benchmark.{name}.time.stdev", benchmark.time.stdev)
+            trial.set_user_attr(f"bench.benchmark.{name}.mem.allocated", benchmark.mem.allocated)
+            trial.set_user_attr(f"bench.benchmark.{name}.mem.copied", benchmark.mem.copied)
+            trial.set_user_attr(f"bench.benchmark.{name}.mem.peak", benchmark.mem.peak)
 
         # Return the total time taken
         frozen_trial = study.tell(trial, bench_info.gather_benchmark_results(optimization_choices))

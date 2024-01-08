@@ -14,6 +14,7 @@ from ghc_hyperopt.cli import get_arg_parser
 from ghc_hyperopt.ghc.config import GhcConfig
 from ghc_hyperopt.ghc.info import GhcInfo
 from ghc_hyperopt.ghc.options import GhcOption, get_all_ghc_options, get_all_ghc_options_optuna_samplers
+from ghc_hyperopt.ghc.options.questionable import GhcQuestionableOptions
 from ghc_hyperopt.ghc.tuner import GhcTuner
 from ghc_hyperopt.tasty.benchmark import TastyBenchmarkOptimizationChoices
 from ghc_hyperopt.utils import SampleFn, get_logger
@@ -32,6 +33,9 @@ def mk_ghc_config(args: Namespace) -> GhcConfig:
     ghc_tuneable_options: dict[str, tuple[GhcOption[Any], SampleFn[Trial, Any]]] = {}
     ghc_options_optuna_samplers: Mapping[str, SampleFn[Trial, Any]] = get_all_ghc_options_optuna_samplers()
 
+    # We don't want to tune the questionable options by default
+    questionable_option_names = GhcQuestionableOptions.__class_vars__
+
     # Map each option specified on the command line to its corresponding sampler or fixed value
     for name, option in get_all_ghc_options().items():
         # Make sure we have a corresponding sampler
@@ -42,7 +46,8 @@ def mk_ghc_config(args: Namespace) -> GhcConfig:
             logger.info("Skipping %s because it is not supported by the current GHC/target triple", name)
             continue
 
-        if getattr(args, f"tune_ghc_{name}", False) or args.tune_ghc_all:
+        # Skip the option if it is a questionable option and we are not tuning them explicitly
+        if getattr(args, f"tune_ghc_{name}", False) or (args.tune_ghc_all and name not in questionable_option_names):
             ghc_tuneable_options[name] = option, ghc_options_optuna_samplers[name]
         else:
             ghc_fixed_options[name] = option
@@ -119,7 +124,7 @@ def tune_ghc_options(args: Namespace) -> None:
     logger.info("Beginning study")
 
     # Begin the study
-    for _ in range_fn(10):
+    for _ in range_fn(10000):
         _ = ghc_tuner.tune(study)
 
     print("Number of finished trials: ", len(study.trials))

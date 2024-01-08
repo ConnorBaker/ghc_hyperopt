@@ -1,7 +1,7 @@
 import subprocess
-from dataclasses import dataclass
-from typing import Literal, Self
+from typing import Literal, Self, final
 
+from ghc_hyperopt.utils import OurBaseModel
 from ghc_hyperopt.version import Version
 
 type Architecture = Literal["x86_64", "aarch64", "ppc64le"]
@@ -26,8 +26,8 @@ def to_operating_system(operating_system: str) -> OperatingSystem:
         return operating_system
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class GhcInfo:
+@final
+class GhcInfo(OurBaseModel):
     """Information about GHC and the target platform."""
 
     version: Version

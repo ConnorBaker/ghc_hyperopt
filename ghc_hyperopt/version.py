@@ -1,28 +1,42 @@
-from dataclasses import dataclass
 from typing import Self, override
 
+from ghc_hyperopt.utils import OurBaseModel
 
-@dataclass(frozen=True, unsafe_hash=True, order=True, slots=True)
-class Version:
+
+class Version(OurBaseModel):
     """A three-digit version number."""
 
-    major: int
-    """The major version number."""
+    value: tuple[int, int, int]
 
-    minor: int
-    """The minor version number."""
+    def __lt__(self, other: Self) -> bool:
+        """Compare two version numbers."""
 
-    patch: int
-    """The patch version number."""
+        return self.value < other.value
+
+    def __le__(self, other: Self) -> bool:
+        """Compare two version numbers."""
+
+        return self.value <= other.value
+
+    def __gt__(self, other: Self) -> bool:
+        """Compare two version numbers."""
+
+        return self.value > other.value
+
+    def __ge__(self, other: Self) -> bool:
+        """Compare two version numbers."""
+
+        return self.value >= other.value
 
     @classmethod
     def parse(cls: type[Self], version: str) -> Self:
         """Parse a version number."""
 
-        return cls(*map(int, version.split(".")))
+        (major, minor, patch) = map(int, version.split("."))
+        return cls(value=(major, minor, patch))
 
     @override
     def __str__(self) -> str:
         """Convert the version number to a string."""
 
-        return f"{self.major}.{self.minor}.{self.patch}"
+        return ".".join(map(str, self.value))

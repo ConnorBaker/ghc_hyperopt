@@ -1,41 +1,41 @@
-from dataclasses import dataclass
+from typing import ClassVar, final
 
-from ghc_hyperopt.ghc.option import GhcOption, GhcOptionGroup
+from optuna import Trial
+
+from ghc_hyperopt.ghc.option import GhcOption
+from ghc_hyperopt.ghc.option_group import GhcOptionGroup
 from ghc_hyperopt.ghc.requirement import GhcArchitectureRequirement, GhcVersionRequirement
-from ghc_hyperopt.utils import suggest_bool
+from ghc_hyperopt.utils import OurBaseModel, SampleFn, suggest_bool
 from ghc_hyperopt.version import Version
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class _GhcPlatformOptions(GhcOptionGroup):
+@final
+class GhcPlatformOptionsOptunaSampler(OurBaseModel):
     """
-    Represents GHC options related to the platform.
+    Sampler for GHC platform options.
     """
 
-    title = "GHC platform tuning"
-    description = """
-        Tune GHC compilation options related to the platform.
+    SSE4_2: ClassVar[SampleFn[Trial, bool]] = suggest_bool
+    BMI2: ClassVar[SampleFn[Trial, bool]] = suggest_bool
+    FMA: ClassVar[SampleFn[Trial, bool]] = suggest_bool
 
-        When a flag is not specified, the corresponding option is not tuned.
-        """
+
+@final
+class GhcPlatformOptions(GhcOptionGroup):
+    """
+    Tune GHC compilation options related to the platform.
+    """
 
     # Only including support for options for the next-gen code generator.
-    SSE4_2: GhcOption[bool]
-    BMI2: GhcOption[bool]
-    FMA: GhcOption[bool]
-
-
-GhcPlatformOptions = _GhcPlatformOptions(
-    SSE4_2=GhcOption(
+    SSE4_2: ClassVar[GhcOption[bool]] = GhcOption(
         flag="sse4.2",
         flag_prefix="-m",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="present_or_absent",
         ghc_requirements=[
-            GhcVersionRequirement(ghc_min_version=Version(7, 4, 1)),
-            GhcArchitectureRequirement({"x86_64"}),
+            GhcVersionRequirement(ghc_min_version=Version(value=(7, 4, 1))),
+            GhcArchitectureRequirement(architectures={"x86_64"}),
         ],
         description=(
             """
@@ -46,17 +46,16 @@ GhcPlatformOptions = _GhcPlatformOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using.html#ghc-flag--msse4.2",
-    ),
-    BMI2=GhcOption(
+    )
+    BMI2: ClassVar[GhcOption[bool]] = GhcOption(
         flag="bmi2",
         flag_prefix="-m",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="present_or_absent",
         ghc_requirements=[
-            GhcVersionRequirement(ghc_min_version=Version(7, 4, 1)),
-            GhcArchitectureRequirement({"x86_64"}),
+            GhcVersionRequirement(ghc_min_version=Version(value=(7, 4, 1))),
+            GhcArchitectureRequirement(architectures={"x86_64"}),
         ],
         description=(
             """
@@ -66,16 +65,15 @@ GhcPlatformOptions = _GhcPlatformOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using.html#ghc-flag--mbmi2",
-    ),
-    FMA=GhcOption(
+    )
+    FMA: ClassVar[GhcOption[bool]] = GhcOption(
         flag="fma",
         flag_prefix="-m",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="present_or_absent",
         ghc_requirements=[
-            GhcVersionRequirement(ghc_min_version=Version(9, 8, 1)),
+            GhcVersionRequirement(ghc_min_version=Version(value=(9, 8, 1))),
         ],
         description=(
             """
@@ -90,5 +88,4 @@ GhcPlatformOptions = _GhcPlatformOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using.html#ghc-flag--mfma",
-    ),
-)
+    )

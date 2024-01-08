@@ -1,37 +1,37 @@
-from dataclasses import dataclass
+from typing import ClassVar, final
 
-from ghc_hyperopt.ghc.option import GhcOption, GhcOptionGroup
-from ghc_hyperopt.utils import suggest_bool
+from optuna import Trial
+
+from ghc_hyperopt.ghc.option import GhcOption
+from ghc_hyperopt.ghc.option_group import GhcOptionGroup
+from ghc_hyperopt.utils import OurBaseModel, SampleFn, suggest_bool
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class _GhcQuestionableOptions(GhcOptionGroup):
+@final
+class GhcQuestionableOptionsOptunaSampler(OurBaseModel):
     """
-    Represents GHC options which are questionable in some respect.
+    Sampler for questionable GHC options.
     """
 
-    title = "⚠️  Questionable GHC tuning ⚠️ "
-    description = """
-        Tune questionable GHC compilation options. These options are questionable because they have
-        historically caused problems or may break things or give bogus benchmark results.
-
-        When a flag is not specified, the corresponding option is not tuned.
-        """
-
-    STATIC_ARGUMENT_TRANSFORMATION: GhcOption[bool]
-    POLYMORPHIC_SPECIALISATION: GhcOption[bool]
-    REGS_GRAPH: GhcOption[bool]
-    REGS_ITERATIVE: GhcOption[bool]
+    STATIC_ARGUMENT_TRANSFORMATION: ClassVar[SampleFn[Trial, bool]] = suggest_bool
+    POLYMORPHIC_SPECIALISATION: ClassVar[SampleFn[Trial, bool]] = suggest_bool
+    REGS_GRAPH: ClassVar[SampleFn[Trial, bool]] = suggest_bool
+    REGS_ITERATIVE: ClassVar[SampleFn[Trial, bool]] = suggest_bool
 
 
-GhcQuestionableOptions = _GhcQuestionableOptions(
+@final
+class GhcQuestionableOptions(GhcOptionGroup):
+    """
+    Tune questionable GHC compilation options. These options are questionable because they have
+    historically caused problems or may break things or give bogus benchmark results.
+    """
+
     # TODO: Tasty-Bench says that this value must always be false, as it is used to allow benchmarking.
-    STATIC_ARGUMENT_TRANSFORMATION=GhcOption(
+    STATIC_ARGUMENT_TRANSFORMATION: ClassVar[GhcOption[bool]] = GhcOption(
         flag="static-argument-transformation",
         flag_prefix="-f",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="boolean",
         description=(
             """
@@ -46,13 +46,12 @@ GhcQuestionableOptions = _GhcQuestionableOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fstatic-argument-transformation",
-    ),
-    POLYMORPHIC_SPECIALISATION=GhcOption(
+    )
+    POLYMORPHIC_SPECIALISATION: ClassVar[GhcOption[bool]] = GhcOption(
         flag="polymorphic-specialisation",
         flag_prefix="-f",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="boolean",
         description=(
             """
@@ -64,13 +63,12 @@ GhcQuestionableOptions = _GhcQuestionableOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fpolymorphic-specialisation",
-    ),
-    REGS_GRAPH=GhcOption(
+    )
+    REGS_GRAPH: ClassVar[GhcOption[bool]] = GhcOption(
         flag="regs-graph",
         flag_prefix="-f",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="boolean",
         description=(
             """
@@ -80,14 +78,13 @@ GhcQuestionableOptions = _GhcQuestionableOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fregs-graph",
-    ),
+    )
     # TODO: Must be able to express dependency on REGS_GRAPH.
-    REGS_ITERATIVE=GhcOption(
+    REGS_ITERATIVE: ClassVar[GhcOption[bool]] = GhcOption(
         flag="regs-iterative",
         flag_prefix="-f",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="boolean",
         description=(
             """
@@ -97,5 +94,4 @@ GhcQuestionableOptions = _GhcQuestionableOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fregs-iterative",
-    ),
-)
+    )

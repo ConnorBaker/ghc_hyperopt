@@ -1,6 +1,6 @@
 from collections.abc import Set
-from dataclasses import dataclass, field
-from typing import Protocol, override, runtime_checkable
+
+from pydantic import Field
 
 from ghc_hyperopt.ghc.info import (
     Architecture,
@@ -9,27 +9,13 @@ from ghc_hyperopt.ghc.info import (
     _Architectures,  # pyright: ignore[reportPrivateUsage]
     _OperatingSystems,  # pyright: ignore[reportPrivateUsage]
 )
+from ghc_hyperopt.utils import OurBaseModel, get_logger
 from ghc_hyperopt.version import Version
 
-
-@runtime_checkable
-class GhcRequirement(Protocol):
-    """
-    Represents a GHC requirement.
-    """
-
-    def satisfied_by(self, ghc_info: GhcInfo) -> bool:
-        """
-        Check if the requirement is satisfied by the given GHC info.
-
-        :param ghc_info: The GHC info to check.
-        :return: True if the requirement is satisfied, False otherwise.
-        """
-        ...
+logger = get_logger(__name__)
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class GhcVersionRequirement(GhcRequirement):
+class GhcVersionRequirement(OurBaseModel):
     """
     Represents a GHC version requirement.
     """
@@ -40,7 +26,6 @@ class GhcVersionRequirement(GhcRequirement):
     ghc_max_version: None | Version = None
     """The maximum GHC version supported."""
 
-    @override
     def satisfied_by(self, ghc_info: GhcInfo) -> bool:
         """
         Check if the requirement is satisfied by the given GHC version.
@@ -48,22 +33,23 @@ class GhcVersionRequirement(GhcRequirement):
         :param ghc_info: The GHC info to check.
         :return: True if the requirement is satisfied, False otherwise.
         """
-        return all([
-            self.ghc_min_version is None or ghc_info.version >= self.ghc_min_version,
-            self.ghc_max_version is None or ghc_info.version <= self.ghc_max_version,
-        ])
+        logger.debug("Checking if %s satisfies %s", ghc_info, self)
+        min_bound_sat = self.ghc_min_version is None or ghc_info.version >= self.ghc_min_version
+        logger.debug("Min bound satisfied: %s", min_bound_sat)
+        max_bound_sat = self.ghc_max_version is None or ghc_info.version <= self.ghc_max_version
+        logger.debug("Max bound satisfied: %s", max_bound_sat)
+
+        return min_bound_sat and max_bound_sat
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True)
-class GhcArchitectureRequirement(GhcRequirement):
+class GhcArchitectureRequirement(OurBaseModel):
     """
     Represents a GHC architecture requirement.
     """
 
-    architectures: Set[Architecture] = field(default_factory=lambda: _Architectures)
+    architectures: Set[Architecture] = Field(default_factory=lambda: _Architectures)
     """The architectures supported."""
 
-    @override
     def satisfied_by(self, ghc_info: GhcInfo) -> bool:
         """
         Check if the requirement is satisfied by the given architecture.
@@ -74,16 +60,14 @@ class GhcArchitectureRequirement(GhcRequirement):
         return ghc_info.architecture in self.architectures
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True)
-class GhcOperatingSystemRequirement(GhcRequirement):
+class GhcOperatingSystemRequirement(OurBaseModel):
     """
     Represents a GHC operating system requirement.
     """
 
-    operating_systems: Set[OperatingSystem] = field(default_factory=lambda: _OperatingSystems)
+    operating_systems: Set[OperatingSystem] = Field(default_factory=lambda: _OperatingSystems)
     """The operating systems supported."""
 
-    @override
     def satisfied_by(self, ghc_info: GhcInfo) -> bool:
         """
         Check if the requirement is satisfied by the given operating system.
@@ -92,3 +76,6 @@ class GhcOperatingSystemRequirement(GhcRequirement):
         :return: True if the requirement is satisfied, False otherwise.
         """
         return ghc_info.operating_system in self.operating_systems
+
+
+type GhcRequirement = GhcVersionRequirement | GhcArchitectureRequirement | GhcOperatingSystemRequirement

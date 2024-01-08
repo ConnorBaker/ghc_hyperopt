@@ -1,37 +1,36 @@
-from dataclasses import dataclass
+from typing import ClassVar, final
 
-from ghc_hyperopt.ghc.option import GhcOption, GhcOptionGroup
-from ghc_hyperopt.utils import suggest_bool, suggest_int
+from optuna import Trial
+
+from ghc_hyperopt.ghc.option import GhcOption
+from ghc_hyperopt.ghc.option_group import GhcOptionGroup
+from ghc_hyperopt.utils import OurBaseModel, SampleFn, suggest_bool, suggest_int
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class _GhcInlinerOptions(GhcOptionGroup):
+@final
+class GhcInlinerOptionsOptunaSampler(OurBaseModel):
     """
-    Represents GHC options which control the inliner.
+    Sampler for GHC inliner options.
     """
 
-    title = "GHC inliner tuning"
-    description = """
-        Tune GHC compilation options related to the inliner.
-
-        When a flag is not specified, the corresponding option is not tuned.
-        """
-
-    MAX_INLINE_ALLOC_SIZE: GhcOption[int]
-    MAX_INLINE_MEMCPY_INSNS: GhcOption[int]
-    MAX_INLINE_MEMSET_INSNS: GhcOption[int]
-
-    EXPOSE_ALL_UNFOLDINGS: GhcOption[bool]
+    MAX_INLINE_ALLOC_SIZE: ClassVar[SampleFn[Trial, int]] = suggest_int(32, 4096, log=True)
+    MAX_INLINE_MEMCPY_INSNS: ClassVar[SampleFn[Trial, int]] = suggest_int(8, 4096, log=True)
+    MAX_INLINE_MEMSET_INSNS: ClassVar[SampleFn[Trial, int]] = suggest_int(8, 4096, log=True)
+    EXPOSE_ALL_UNFOLDINGS: ClassVar[SampleFn[Trial, bool]] = suggest_bool
 
 
-GhcInlinerOptions = _GhcInlinerOptions(
+@final
+class GhcInlinerOptions(GhcOptionGroup, OurBaseModel):
+    """
+    Tune GHC compilation options related to the inliner.
+    """
+
     # TODO: Need to be able to encode "This value should be quite a bit smaller than the block size (typically: 4096)."
-    MAX_INLINE_ALLOC_SIZE=GhcOption(
+    MAX_INLINE_ALLOC_SIZE: ClassVar[GhcOption[int]] = GhcOption(
         flag="max-inline-alloc-size",
         flag_prefix="-f",
         type=int,
         default=128,
-        sample=suggest_int(32, 4096, log=True),
         kind="arg",
         description=(
             """
@@ -41,33 +40,30 @@ GhcInlinerOptions = _GhcInlinerOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fmax-inline-alloc-size=⟨n⟩",
-    ),
-    MAX_INLINE_MEMCPY_INSNS=GhcOption(
+    )
+    MAX_INLINE_MEMCPY_INSNS: ClassVar[GhcOption[int]] = GhcOption(
         flag="max-inline-memcpy-insns",
         flag_prefix="-f",
         type=int,
         default=32,
-        sample=suggest_int(8, 4096, log=True),
         kind="arg",
         description="Inline memcpy calls if they would generate no more than ⟨n⟩ pseudo-instructions.",
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fmax-inline-memcpy-insns=⟨n⟩",
-    ),
-    MAX_INLINE_MEMSET_INSNS=GhcOption(
+    )
+    MAX_INLINE_MEMSET_INSNS: ClassVar[GhcOption[int]] = GhcOption(
         flag="max-inline-memset-insns",
         flag_prefix="-f",
         type=int,
         default=32,
-        sample=suggest_int(8, 4096, log=True),
         kind="arg",
         description="Inline memset calls if they would generate no more than n pseudo instructions.",
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fmax-inline-memset-insns=⟨n⟩",
-    ),
-    EXPOSE_ALL_UNFOLDINGS=GhcOption(
+    )
+    EXPOSE_ALL_UNFOLDINGS: ClassVar[GhcOption[bool]] = GhcOption(
         flag="expose-all-unfoldings",
         flag_prefix="-f",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="boolean",
         description=(
             """
@@ -78,5 +74,4 @@ GhcInlinerOptions = _GhcInlinerOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fexpose-all-unfoldings",
-    ),
-)
+    )

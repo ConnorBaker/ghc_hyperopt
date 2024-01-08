@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
 from pathlib import Path
 
-from ghc_hyperopt.ghc.config import get_all_ghc_option_groups
+from ghc_hyperopt.ghc.options import add_all_ghc_option_groups_to_parser
 
 # NOTE:
 # With one exception, groups are not designed or intended to be nested.  But by inheritance (from _ActionsContainer)
@@ -49,7 +49,6 @@ def get_arg_parser() -> ArgumentParser:
         action="store_true",
         help="Tune all GHC flags.",
     )
-    for group in get_all_ghc_option_groups():
-        group.add_group_to_parser(arg_parser)
+    add_all_ghc_option_groups_to_parser(arg_parser)
 
     return arg_parser

@@ -1,56 +1,36 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from functools import partial
-from typing import Any, Literal
+from typing import Any, Literal, Self, final
 
-from optuna import Trial
+from optuna.trial import Trial
+from pydantic import model_validator
 
-from ghc_hyperopt.ghc.option import GhcOption, GhcOptionGroup
-from ghc_hyperopt.ghc.option.inliner import GhcInlinerOptions
-from ghc_hyperopt.ghc.option.misc import GhcMiscOptions
-from ghc_hyperopt.ghc.option.platform import GhcPlatformOptions
-from ghc_hyperopt.ghc.option.questionable import GhcQuestionableOptions
-from ghc_hyperopt.ghc.option.simplifier import GhcSimplifierOptions
-from ghc_hyperopt.ghc.option.specialiser import GhcSpecialiserOptions
-from ghc_hyperopt.ghc.option.stg_lift_lams import GhcStgLiftLamOptions
-from ghc_hyperopt.utils import get_logger
+from ghc_hyperopt.ghc.option import GhcOption
+from ghc_hyperopt.utils import OurBaseException, SampleFn, get_logger
 
 logger = get_logger(__name__)
 
 
-def get_all_ghc_option_groups() -> Sequence[GhcOptionGroup]:
-    """Get all GHC options as groups"""
-    return [
-        GhcInlinerOptions,
-        GhcMiscOptions,
-        GhcPlatformOptions,
-        GhcQuestionableOptions,
-        GhcSimplifierOptions,
-        GhcSpecialiserOptions,
-        GhcStgLiftLamOptions,
-    ]
-
-
-def get_all_ghc_options() -> Mapping[str, GhcOption[Any]]:
-    """Get all GHC options as a mapping from their names to their instances."""
-    return {
-        name: getattr(option_group, name)
-        for option_group in get_all_ghc_option_groups()
-        for name in option_group.__slots__
-    }
-
-
-class GhcConfigError(RuntimeError):
+class GhcConfigError(OurBaseException):
     """An error caused by an invalid GHC configuration."""
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
+# TODO: Not generic over the choice of sampler
+# TODO: Won't work as a Pydantic model because type check fails for the ghc_tuneable_options
+@final
+@dataclass(frozen=True)
 class GhcConfig:
     """
     A GHC configuration instance.
 
     See https://downloads.haskell.org/ghc/latest/docs/users_guide/using-optimisation.html for more information.
     """
+
+    ghc_fixed_options: Mapping[str, GhcOption[Any]]
+    """The GHC options which are unchanging."""
+
+    ghc_tuneable_options: Mapping[str, tuple[GhcOption[Any], SampleFn[Trial, Any]]]
+    """The GHC options which are tunable."""
 
     optimization: Literal[0, 1, 2] = 2
     """The optimization level."""
@@ -62,13 +42,8 @@ class GhcConfig:
     optimal_applicative_do: bool = False
     """Optimal applicative do."""
 
-    ghc_fixed_options: Mapping[str, GhcOption[Any]]
-    """The GHC options which are unchanging."""
-
-    ghc_tuneable_options: Mapping[str, GhcOption[Any]]
-    """The GHC options which are tunable."""
-
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def no_fixed_and_tuneable_overlap(self: Self) -> Self:
         """Validate the configuration, raising an exception if it is invalid."""
 
         # The fixed and tuneable options must be disjoint
@@ -76,29 +51,37 @@ class GhcConfig:
         if mixed_options:
             raise ValueError(f"Options {mixed_options} are both fixed and tuneable.")
 
-    def get_flags(self, trial: Trial) -> Sequence[str]:
+        return self
+
+    def get_fixed_flags(self) -> Sequence[str]:
+        """
+        Get the fixed flags.
+        """
+        return [
+            flag
+            for option in self.ghc_fixed_options.values()
+            for flag in [GhcOption.to_flag(option, use="default")]
+            if flag is not None
+        ]
+
+    def get_tuneable_flags(self, sampler: Trial) -> Sequence[str]:
+        """
+        Get the tuneable flags.
+        """
+        return [
+            flag
+            for name, (option, sample_fn) in self.ghc_tuneable_options.items()
+            for flag in [GhcOption.to_flag(option, use="value", value=sample_fn(name, sampler))]
+            if flag is not None
+        ]
+
+    def get_flags(self, sampler: Trial) -> Sequence[str]:
         """
         Run one trial of the tuner.
         """
-        fixed_flags = list(
-            filter(
-                None,
-                map(
-                    partial(GhcOption.to_flag, use="default"),
-                    self.ghc_fixed_options.values(),
-                ),
-            )
-        )
+        fixed_flags = self.get_fixed_flags()
         logger.info("Fixed flags: %s", " ".join(fixed_flags))
-        tuneable_flags = list(
-            filter(
-                None,
-                map(
-                    partial(GhcOption.to_flag, use="trial", trial=trial),
-                    self.ghc_tuneable_options.values(),
-                ),
-            )
-        )
+        tuneable_flags = self.get_tuneable_flags(sampler)
         logger.info("Tuneable flags: %s", " ".join(tuneable_flags))
         ghc_args = [
             "-O" + str(self.optimization),

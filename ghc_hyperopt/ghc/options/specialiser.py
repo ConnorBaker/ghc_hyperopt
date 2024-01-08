@@ -1,38 +1,38 @@
-from dataclasses import dataclass
+from typing import ClassVar, final
 
-from ghc_hyperopt.ghc.option import GhcOption, GhcOptionGroup
-from ghc_hyperopt.utils import suggest_bool, suggest_int
+from optuna import Trial
+
+from ghc_hyperopt.ghc.option import GhcOption
+from ghc_hyperopt.ghc.option_group import GhcOptionGroup
+from ghc_hyperopt.utils import OurBaseModel, SampleFn, suggest_bool, suggest_int
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class _GhcSpecialiserOptions(GhcOptionGroup):
+@final
+class GhcSpecialiserOptionsOptunaSampler(OurBaseModel):
     """
-    Represents GHC options which control the specialiser.
+    Sampler for GHC specialiser options.
     """
 
-    title = "GHC specialiser tuning"
-    description = """
-        Tune GHC compilation options related to the specialiser.
+    SPEC_CONSTR_KEEN: ClassVar[SampleFn[Trial, bool]] = suggest_bool
+    SPEC_CONSTR_COUNT: ClassVar[SampleFn[Trial, int]] = suggest_int(1, 16)
+    SPEC_CONSTR_THRESHOLD: ClassVar[SampleFn[Trial, int]] = suggest_int(100, 100000, log=True)
 
-        When a flag is not specified, the corresponding option is not tuned.
-        """
+    LATE_SPECIALISE: ClassVar[SampleFn[Trial, bool]] = suggest_bool
 
-    SPEC_CONSTR_KEEN: GhcOption[bool]
-    SPEC_CONSTR_COUNT: GhcOption[int]
-    SPEC_CONSTR_THRESHOLD: GhcOption[int]
-
-    LATE_SPECIALISE: GhcOption[bool]
-
-    SPECIALISE_AGGRESSIVELY: GhcOption[bool]
+    SPECIALISE_AGGRESSIVELY: ClassVar[SampleFn[Trial, bool]] = suggest_bool
 
 
-GhcSpecialiserOptions = _GhcSpecialiserOptions(
-    SPEC_CONSTR_KEEN=GhcOption(
+@final
+class GhcSpecialiserOptions(GhcOptionGroup):
+    """
+    Tune GHC compilation options related to the specialiser.
+    """
+
+    SPEC_CONSTR_KEEN: ClassVar[GhcOption[bool]] = GhcOption(
         flag="spec-constr-keen",
         flag_prefix="-f",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="boolean",
         description=(
             """
@@ -43,13 +43,12 @@ GhcSpecialiserOptions = _GhcSpecialiserOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fspec-constr-keen",
-    ),
-    SPEC_CONSTR_COUNT=GhcOption(
+    )
+    SPEC_CONSTR_COUNT: ClassVar[GhcOption[int]] = GhcOption(
         flag="spec-constr-count",
         flag_prefix="-f",
         type=int,
         default=3,
-        sample=suggest_int(1, 16),
         kind="arg",
         description=(
             """
@@ -58,23 +57,22 @@ GhcSpecialiserOptions = _GhcSpecialiserOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fspec-constr-count=⟨n⟩",
-    ),
-    SPEC_CONSTR_THRESHOLD=GhcOption(
+    )
+    SPEC_CONSTR_THRESHOLD: ClassVar[GhcOption[int]] = GhcOption(
         flag="spec-constr-threshold",
         flag_prefix="-f",
         type=int,
         default=2000,
-        sample=suggest_int(100, 100000, log=True),
         kind="arg",
         description="Set the size threshold for the SpecConstr transformation.",
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fspec-constr-threshold=⟨n⟩",
-    ),
-    LATE_SPECIALISE=GhcOption(
+    )
+
+    LATE_SPECIALISE: ClassVar[GhcOption[bool]] = GhcOption(
         flag="late-specialise",
         flag_prefix="-f",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="boolean",
         description=(
             """
@@ -86,13 +84,13 @@ GhcSpecialiserOptions = _GhcSpecialiserOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--flate-specialise",
-    ),
-    SPECIALISE_AGGRESSIVELY=GhcOption(
+    )
+
+    SPECIALISE_AGGRESSIVELY: ClassVar[GhcOption[bool]] = GhcOption(
         flag="specialise-aggressively",
         flag_prefix="-f",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="boolean",
         description=(
             """
@@ -103,5 +101,4 @@ GhcSpecialiserOptions = _GhcSpecialiserOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fspecialise-aggressively",
-    ),
-)
+    )

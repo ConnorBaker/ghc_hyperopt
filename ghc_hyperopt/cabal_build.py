@@ -2,12 +2,11 @@ import shutil
 import subprocess
 import tempfile
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Self
+from typing import Self, final
 
 from ghc_hyperopt.process_info import ProcessError, ProcessInfo
-from ghc_hyperopt.utils import get_logger
+from ghc_hyperopt.utils import OurBaseModel, get_logger
 
 logger = get_logger(__name__)
 
@@ -16,8 +15,8 @@ class CabalBuildError(ProcessError):
     """An error occurred during the build."""
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class CabalBuild:
+@final
+class CabalBuild(OurBaseModel):
     """Information about the build."""
 
     project_path: Path
@@ -35,6 +34,9 @@ class CabalBuild:
     process_info: ProcessInfo
     """Information about the build process."""
 
+    executable_path: Path
+    """The path to the built executable."""
+
     @classmethod
     def do(
         cls: type[Self],
@@ -42,7 +44,7 @@ class CabalBuild:
         component_name: str,
         artifact_dir: Path,
         flags: Sequence[str],
-    ) -> Self:
+    ) -> CabalBuildError | Self:
         """Build the benchmark executable."""
         build_dir = Path(tempfile.mkdtemp(dir=artifact_dir.as_posix()))
 
@@ -56,15 +58,26 @@ class CabalBuild:
             *(f"--ghc-option={opt}" for opt in flags),
         ]
 
-        try:
-            process_info = ProcessInfo.do(
-                args=args,
-                project_path=project_path,
-                logger=logger,
-            )
-        except ProcessError as e:
+        process_info = ProcessInfo.do(
+            args=args,
+            project_path=project_path,
+        )
+        if isinstance(process_info, ProcessError):
             shutil.rmtree(build_dir.as_posix())
-            raise CabalBuildError(*e.args)
+            return CabalBuildError(process_info.msg)
+
+        executable_path = Path(
+            subprocess.check_output(
+                args=[
+                    "cabal",
+                    "list-bin",
+                    component_name,
+                    f"--builddir={build_dir.as_posix()}",
+                ],
+                cwd=project_path.as_posix(),
+                text=True,
+            ).strip()
+        )
 
         # Return the build info
         return cls(
@@ -73,19 +86,5 @@ class CabalBuild:
             build_dir=build_dir,
             args=args,
             process_info=process_info,
-        )
-
-    def list_bin(self) -> Path:
-        """Return the path to the previously built component."""
-        return Path(
-            subprocess.check_output(
-                args=[
-                    "cabal",
-                    "list-bin",
-                    self.component_name,
-                    f"--builddir={self.build_dir.as_posix()}",
-                ],
-                cwd=self.project_path.as_posix(),
-                text=True,
-            ).strip()
+            executable_path=executable_path,
         )

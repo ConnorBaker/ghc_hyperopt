@@ -1,55 +1,53 @@
-from dataclasses import dataclass
+from typing import ClassVar, final
 
-from ghc_hyperopt.ghc.option import GhcOption, GhcOptionGroup
-from ghc_hyperopt.utils import suggest_bool, suggest_int
+from optuna import Trial
+
+from ghc_hyperopt.ghc.option import GhcOption
+from ghc_hyperopt.ghc.option_group import GhcOptionGroup
+from ghc_hyperopt.utils import OurBaseModel, SampleFn, suggest_bool, suggest_int
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class _GhcSimplifierOptions(GhcOptionGroup):
+@final
+class GhcSimplifierOptionsOptunaSampler(OurBaseModel):
     """
-    Represents GHC options which control the simplifier.
+    Sampler for GHC simplifier options.
     """
 
-    title = "GHC simplifier tuning"
-    description = """
-        Tune GHC compilation options related to the simplifier.
-
-        When a flag is not specified, the corresponding option is not tuned.
-        """
-
-    MAX_SIMPLIFIER_ITERATIONS: GhcOption[int]
-    SIMPLIFIER_PHASES: GhcOption[int]
-    SIMPL_TICK_FACTOR: GhcOption[int]
-    LATE_DMD_ANAL: GhcOption[bool]
+    MAX_SIMPLIFIER_ITERATIONS: ClassVar[SampleFn[Trial, int]] = suggest_int(1, 100, log=True)
+    SIMPLIFIER_PHASES: ClassVar[SampleFn[Trial, int]] = suggest_int(1, 100, log=True)
+    SIMPL_TICK_FACTOR: ClassVar[SampleFn[Trial, int]] = suggest_int(1, 10000, log=True)
+    LATE_DMD_ANAL: ClassVar[SampleFn[Trial, bool]] = suggest_bool
 
 
-GhcSimplifierOptions = _GhcSimplifierOptions(
-    MAX_SIMPLIFIER_ITERATIONS=GhcOption(
+@final
+class GhcSimplifierOptions(GhcOptionGroup):
+    """
+    Tune GHC compilation options related to the simplifier.
+    """
+
+    MAX_SIMPLIFIER_ITERATIONS: ClassVar[GhcOption[int]] = GhcOption(
         flag="max-simplifier-iterations",
         flag_prefix="-f",
         type=int,
         default=4,
-        sample=suggest_int(1, 100, log=True),
         kind="arg",
         description="Sets the maximal number of iterations for the simplifier.",
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fmax-simplifier-iterations=⟨n⟩",
-    ),
-    SIMPLIFIER_PHASES=GhcOption(
+    )
+    SIMPLIFIER_PHASES: ClassVar[GhcOption[int]] = GhcOption(
         flag="simplifier-phases",
         flag_prefix="-f",
         type=int,
         default=2,
-        sample=suggest_int(1, 100, log=True),
         kind="arg",
         description="Set the number of phases for the simplifier.",
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fsimplifier-phases=⟨n⟩",
-    ),
-    SIMPL_TICK_FACTOR=GhcOption(
+    )
+    SIMPL_TICK_FACTOR: ClassVar[GhcOption[int]] = GhcOption(
         flag="simpl-tick-factor",
         flag_prefix="-f",
         type=int,
         default=100,
-        sample=suggest_int(1, 10000, log=True),
         kind="arg",
         description=(
             """
@@ -66,13 +64,12 @@ GhcSimplifierOptions = _GhcSimplifierOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--fsimpl-tick-factor=⟨n⟩",
-    ),
-    LATE_DMD_ANAL=GhcOption(
+    )
+    LATE_DMD_ANAL: ClassVar[GhcOption[bool]] = GhcOption(
         flag="late-dmd-anal",
         flag_prefix="-f",
         type=bool,
         default=False,
-        sample=suggest_bool,
         kind="boolean",
         description=(
             """
@@ -83,5 +80,4 @@ GhcSimplifierOptions = _GhcSimplifierOptions(
             """
         ),
         reference="https://ghc.gitlab.haskell.org/ghc/doc/users_guide/using-optimisation.html#ghc-flag--flate-dmd-anal",
-    ),
-)
+    )

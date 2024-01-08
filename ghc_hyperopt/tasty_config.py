@@ -1,12 +1,11 @@
 from collections.abc import Sequence
-from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, final
+
+from ghc_hyperopt.utils import OurBaseModel
 
 
-# TODO: Add support for options read from JSON or something similar because users can implement
-# their own options with Tasty.
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class TastyConfig:
+@final
+class TastyConfig(OurBaseModel):
     """
     Arguments to be provided to the tasty-benchmarking executable.
 
@@ -38,18 +37,17 @@ class TastyConfig:
 
     def to_flags(self) -> Sequence[str]:
         """Convert the configuration to a list of flags."""
-        options: list[str] = list(self.__slots__)
         flags: list[str] = []
-        for option in options:
-            tasty_option_name = "--" + option.replace("_", "-")
-            match getattr(self, option):
+        for key, value in self.model_dump().items():
+            tasty_option_name = "--" + key.replace("_", "-")
+            match value:
                 case None | False:
                     continue
                 case True:
                     flags.append(tasty_option_name)
-                case int() | str() as v:
-                    flags.append(tasty_option_name + f"={v}")
+                case int() | str():
+                    flags.append(tasty_option_name + f"={value}")
                 case _:
-                    raise NotImplementedError(f"Option {option} is not implemented.")
+                    raise NotImplementedError(f"Option {key} is not implemented.")
 
         return flags

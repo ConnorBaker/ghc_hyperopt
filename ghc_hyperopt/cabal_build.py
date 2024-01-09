@@ -1,11 +1,12 @@
-import base64
-from dataclasses import dataclass
+import shutil
+import subprocess
+import tempfile
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Self
+from typing import Self, final
 
-from ghc_hyperopt.ghc_config import GHCConfig
 from ghc_hyperopt.process_info import ProcessError, ProcessInfo
-from ghc_hyperopt.utils import get_logger, pretty_print_json
+from ghc_hyperopt.utils import OurBaseModel, get_logger
 
 logger = get_logger(__name__)
 
@@ -14,8 +15,8 @@ class CabalBuildError(ProcessError):
     """An error occurred during the build."""
 
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class CabalBuild:
+@final
+class CabalBuild(OurBaseModel):
     """Information about the build."""
 
     project_path: Path
@@ -27,11 +28,14 @@ class CabalBuild:
     build_dir: Path
     """The path to store the build artifacts."""
 
-    ghc_config: GHCConfig
-    """The GHC configuration used for the build."""
+    args: Sequence[str]
+    """The arguments used to build."""
 
     process_info: ProcessInfo
     """Information about the build process."""
+
+    executable_path: Path
+    """The path to the built executable."""
 
     @classmethod
     def do(
@@ -39,17 +43,10 @@ class CabalBuild:
         project_path: Path,
         component_name: str,
         artifact_dir: Path,
-        ghc_config: GHCConfig,
-    ) -> Self:
+        flags: Sequence[str],
+    ) -> CabalBuildError | Self:
         """Build the benchmark executable."""
-        build_dir = artifact_dir / base64.urlsafe_b64encode(hash(ghc_config).to_bytes(8, signed=True)).decode("ascii")
-
-        # Error if the build directory already exists
-        if build_dir.exists():
-            raise CabalBuildError(f"Build directory already exists: {build_dir}")
-
-        # Create the build directory
-        build_dir.mkdir(parents=True)
+        build_dir = Path(tempfile.mkdtemp(dir=artifact_dir.as_posix()))
 
         args = [
             "cabal",
@@ -58,55 +55,36 @@ class CabalBuild:
             f"--builddir={build_dir.as_posix()}",
             "--jobs=1",
             # Compiler args
-            *(f"--ghc-option={opt}" for opt in ghc_config.to_flags()),
+            *(f"--ghc-option={opt}" for opt in flags),
         ]
 
-        # Add a copy of the GHC config and the args to the build directory
-        _ = (build_dir / "ghc_config.json").write_text(pretty_print_json(ghc_config))
-        _ = (build_dir / "args.txt").write_text("\n".join(args))
+        process_info = ProcessInfo.do(
+            args=args,
+            project_path=project_path,
+        )
+        if isinstance(process_info, ProcessError):
+            shutil.rmtree(build_dir.as_posix())
+            return CabalBuildError(process_info.msg)
 
-        # TODO: Write a copy of the output of the process info to the build directory --
-        # we can read it and return it while skipping the build if it exists.
-        # This would allow us to resume tuning a build without actually needing to rebuild it!
-
-        try:
-            process_info = ProcessInfo.do(
+        executable_path = Path(
+            subprocess.check_output(
                 args=[
                     "cabal",
-                    "build",
+                    "list-bin",
                     component_name,
                     f"--builddir={build_dir.as_posix()}",
-                    "--jobs=1",
-                    # Compiler args
-                    *(f"--ghc-option={opt}" for opt in ghc_config.to_flags()),
                 ],
-                project_path=project_path,
-                logger=logger,
-            )
-        except ProcessError as e:
-            raise CabalBuildError(*e.args)
+                cwd=project_path.as_posix(),
+                text=True,
+            ).strip()
+        )
 
         # Return the build info
         return cls(
             project_path=project_path,
             component_name=component_name,
             build_dir=build_dir,
-            ghc_config=ghc_config,
+            args=args,
             process_info=process_info,
+            executable_path=executable_path,
         )
-
-    def list_bin(self) -> Path:
-        """Return the path to the previously built component."""
-        process_info = ProcessInfo.do(
-            args=[
-                "cabal",
-                "list-bin",
-                self.component_name,
-                f"--builddir={self.build_dir.as_posix()}",
-            ],
-            project_path=self.project_path,
-            logger=logger,
-        )
-
-        # Return the path to the executable
-        return Path(process_info.stdout.strip())

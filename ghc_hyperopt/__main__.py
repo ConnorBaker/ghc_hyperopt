@@ -1,139 +1,183 @@
 import logging
 import sys
-from argparse import ArgumentParser
-from dataclasses import asdict
+from argparse import Namespace
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any, Literal
 
 import optuna
-from optuna import Study, Trial
+import tqdm
+from optuna.study import Study
+from optuna.trial import Trial
 
-from ghc_hyperopt.cabal_build import CabalBuild, CabalBuildError
-from ghc_hyperopt.ghc_config import GHCConfig, GHCConfigError
-from ghc_hyperopt.process_info import ProcessError
-from ghc_hyperopt.rts_config import RTSConfig, RTSConfigError
-from ghc_hyperopt.tasty_bench import TastyBench, TastyBenchError
-from ghc_hyperopt.tasty_config import TastyConfig
-from ghc_hyperopt.utils import get_logger, pretty_print_json
+import wandb
+from ghc_hyperopt.cli import get_arg_parser
+from ghc_hyperopt.ghc.config import GhcConfig
+from ghc_hyperopt.ghc.info import GhcInfo
+from ghc_hyperopt.ghc.options import GhcOption, get_all_ghc_options, get_all_ghc_options_optuna_samplers
+from ghc_hyperopt.ghc.options.questionable import GhcQuestionableOptions
+from ghc_hyperopt.ghc.tuner import GhcTuner
+from ghc_hyperopt.tasty.benchmark import (
+    TastyBenchmark,
+    TastyBenchmarkMemoryInfo,
+    TastyBenchmarkTimeInfo,
+)
+from ghc_hyperopt.utils import SampleFn, get_logger
 
 logger = get_logger(__name__)
 
+# NOTE: We are MAXIMIZING the percent improvement -- that's our objective function.
+OPTIMIZATION_DIRECTIONS: TastyBenchmark[Literal["maximize", "minimize"]] = TastyBenchmark[
+    Literal["maximize", "minimize"]
+](
+    name="OPTIMIZATION_DIRECTIONS",
+    time=TastyBenchmarkTimeInfo[Literal["maximize", "minimize"]](
+        mean="maximize",
+        stdev="maximize",
+    ),
+    mem=TastyBenchmarkMemoryInfo[Literal["maximize", "minimize"]](
+        allocated="maximize",
+        copied="maximize",
+        peak="maximize",
+    ),
+)
 
-def objective(project_path: Path, component_name: str, artifact_dir: Path, trial: Trial) -> float:
-    try:
-        # Sample our configs
-        ghc_config = GHCConfig.from_trial(trial)
-        rts_config = RTSConfig.from_trial(trial)
-
-        # Build the project
-        build_info = CabalBuild.do(project_path, component_name, artifact_dir, ghc_config)
-
-        # Add the build info to the trial
-        trial.set_user_attr("build.component_name", build_info.component_name)
-        for key in ["time_total", "mem_peak"]:
-            trial.set_user_attr(f"build.process_info.{key}", getattr(build_info.process_info, key))
-
-        # Get the location of the benchmark executable
-        bench_executable_path = build_info.list_bin()
-
-        # Run the benchmark
-        bench_info = TastyBench.do(bench_executable_path, TastyConfig(), rts_config)
-
-        # Add the overall benchmark info to the trial
-        for key in ["time_total", "mem_peak"]:
-            trial.set_user_attr(f"bench.process_info.{key}", getattr(bench_info.process_info, key))
-
-        # Add each benchmark to the trial
-        for benchmark in bench_info.benchmarks:
-            name = benchmark.name
-            for key, value in asdict(benchmark).items():
-                if key == "name":
-                    continue
-                trial.set_user_attr(f"bench.benchmark.{name}.{key}", value)
-
-        # Return the total time taken
-        return bench_info.process_info.time_total
-
-    except Exception as e:
-        error_name = e.__class__.__name__
-        trial.set_user_attr("error.name", error_name)
-        match e:
-            case GHCConfigError():
-                pass
-            case RTSConfigError():
-                trial.set_user_attr("error.rts", e.broken_invariant)
-            case CabalBuildError():
-                # TODO: Add actual arguments to each of these class of errors so we can have more
-                # descriptive error messages.
-                trial.set_user_attr("error.build", e.args[0])
-            case TastyBenchError():
-                # TODO: Add actual arguments to each of these class of errors so we can have more
-                # descriptive error messages.
-                trial.set_user_attr("error.bench", e.args[0])
-            case ProcessError():
-                # TODO: Add actual arguments to each of these class of errors so we can have more
-                # descriptive error messages.
-                trial.set_user_attr("error.process", e.args[0])
-            case _:
-                logger.error("Unhandled category of error: %s", e)
-                trial.set_user_attr("error.data", e.args)
-                raise e
-
-        logger.warning("Pruning trial due to GHCConfigError: %s", pretty_print_json(e.args[0]))
-        raise optuna.exceptions.TrialPruned()
+OPTIMIZATION_CHOICES: TastyBenchmark[bool] = TastyBenchmark[bool](
+    name="optimization_choices",
+    time=TastyBenchmarkTimeInfo[bool](
+        mean=True,
+        stdev=False,
+    ),
+    mem=TastyBenchmarkMemoryInfo[bool](
+        allocated=False,
+        copied=False,
+        peak=False,
+    ),
+)
 
 
-def main(project_path: Path, component_name: str, artifact_dir: Path) -> None:
-    if not project_path.exists():
-        raise FileNotFoundError(project_path)
+def mk_ghc_config(args: Namespace) -> GhcConfig:
+    # Get info about GHC to check support for options
+    ghc_info = GhcInfo.get()
 
+    # The fixed options will use their default values
+    ghc_fixed_options: dict[str, GhcOption[Any]] = {}
+
+    # The tuneable options will use the corresponding sampler
+    ghc_tuneable_options: dict[str, tuple[GhcOption[Any], SampleFn[Trial, Any]]] = {}
+    ghc_options_optuna_samplers: Mapping[str, SampleFn[Trial, Any]] = get_all_ghc_options_optuna_samplers()
+
+    # We don't want to tune the questionable options by default
+    questionable_option_names = GhcQuestionableOptions.__class_vars__
+
+    # Map each option specified on the command line to its corresponding sampler or fixed value
+    for name, option in get_all_ghc_options().items():
+        # Make sure we have a corresponding sampler
+        assert name in ghc_options_optuna_samplers
+
+        # Skip the option if unsupported by the current GHC/target triple
+        if not all(req.satisfied_by(ghc_info) for req in option.ghc_requirements):
+            logger.info("Skipping %s because it is not supported by the current GHC/target triple", name)
+            continue
+
+        # Skip the option if it is a questionable option and we are not tuning them explicitly
+        if getattr(args, f"tune_ghc_{name}", False) or (args.tune_ghc_all and name not in questionable_option_names):
+            ghc_tuneable_options[name] = option, ghc_options_optuna_samplers[name]
+        else:
+            ghc_fixed_options[name] = option
+
+    return GhcConfig(
+        optimization=2,
+        rtsopts="all",
+        ghc_fixed_options=ghc_fixed_options,
+        ghc_tuneable_options=ghc_tuneable_options,
+    )
+
+
+def mk_study(artifact_dir: Path, optimization_directions: Sequence[Literal["maximize", "minimize"]]) -> Study:
     # Make sure the artifact directory exists
-    artifact_dir.mkdir(parents=True, exist_ok=True)
     db_path = artifact_dir / "ghc_hyperopt.db"
 
     # Add stream handler of stdout to show the messages
     optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
-    study: Study = optuna.create_study(
+    return optuna.create_study(
         study_name="ghc_hyperopt",
-        direction="minimize",
+        directions=optimization_directions,
         storage=optuna.storages.RDBStorage(
             url="sqlite:///" + db_path.as_posix(),
         ),
-        load_if_exists=db_path.exists(),
+        load_if_exists=False,
     )
-    study.optimize(
-        lambda trial: objective(
-            project_path,
-            component_name,
-            artifact_dir,
-            trial,
-        ),
-        n_jobs=2,
-        n_trials=2000,
+
+
+def tune_ghc_options(args: Namespace) -> None:
+    project_path: Path = args.project_path
+    if not project_path.exists():
+        raise FileNotFoundError(project_path)
+
+    artifact_dir: Path = args.artifact_dir
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+
+    component_name: str = args.component_name
+
+    # TODO: This always creates a new baseline -- we want to query the GhcTuner to see if there's already a baseline
+    # in the database.
+    # Get our baseline
+    logger.info("Running baseline build and benchmarks")
+    (baseline_build_info, baseline_bench_info) = GhcTuner.run_baseline(
+        project_path=project_path,
+        component_name=component_name,
+        artifact_dir=artifact_dir,
     )
-    print("Best params: ")
-    print(study.best_params)
+
+    # Get the optimization directions (minimize for each optimization choice for each benchmark)
+    optimization_directions: Sequence[Literal["maximize", "minimize"]] = [
+        direction
+        # Currently we optimize the same way for all benchmarks
+        for _ in baseline_bench_info.benchmarks
+        for enabled, direction in zip(OPTIMIZATION_CHOICES.to_list(), OPTIMIZATION_DIRECTIONS.to_list())
+        if enabled
+    ]
+
+    ghc_config = mk_ghc_config(args)
+    study = mk_study(artifact_dir, optimization_directions)
+    _ = wandb.init(project="my-awesome-project")
+    baseline = GhcTuner.register_baseline(study, baseline_build_info, baseline_bench_info, OPTIMIZATION_CHOICES)
+
+    ghc_tuner = GhcTuner(
+        project_path=args.project_path,
+        component_name=args.component_name,
+        artifact_dir=args.artifact_dir,
+        ghc_config=ghc_config,
+        optimization_choices=OPTIMIZATION_CHOICES,
+        baseline=baseline_bench_info,
+    )
+
+    # Don't use a progress bar if the log level is WARNING or lower
+    range_fn = tqdm.trange if logger.getEffectiveLevel() > logging.WARNING else range
+
+    logger.info("Beginning study")
+
+    # Begin the study
+    for _ in range_fn(1000):
+        _ = ghc_tuner.tune(study)
+
+    print("Number of finished trials: ", len(study.trials))
+    print("Baseline trial: ")
+    print(study.trials[baseline.number])
+    print("Best trials: ")
+    print(study.best_trials)
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser()
-    _ = parser.add_argument(
-        "--project-path",
-        type=Path,
-        help="The path to the project to benchmark (e.g., FibHaskell).",
-    )
-    _ = parser.add_argument(
-        "--component-name",
-        type=str,
-        help="The name of the component to benchmark, (e.g., bench:bench-fib).",
-    )
-    _ = parser.add_argument(
-        "--artifact-dir",
-        type=Path,
-        help="The directory to store the artifacts.",
-    )
-    args = parser.parse_args()
-    main(
-        project_path=Path(args.project_path),
-        component_name=args.component_name,
-        artifact_dir=Path(args.artifact_dir),
-    )
+    arg_parser = get_arg_parser()
+    args = arg_parser.parse_args()
+
+    if args.tune_ghc:
+        print("Tuning GHC options")
+        tune_ghc_options(args)
+    elif args.tune_rts:
+        print("Tuning RTS options")
+        raise NotImplementedError()
+    else:
+        raise RuntimeError("Unknown tuning kind")

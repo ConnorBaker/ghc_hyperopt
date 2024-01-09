@@ -4,7 +4,7 @@ from typing import Annotated, Self
 
 from optuna import Trial
 
-from ghc_hyperopt.utils import suggest_int
+from ghc_hyperopt.utils import OurBaseException, suggest_int
 
 # Generally, kilobyte is our base unit for RTS options involving sizes.
 KILOBYTE: int = 1024
@@ -14,20 +14,12 @@ MEGABYTE: int = 1024 * KILOBYTE
 GIGABYTE: int = 1024 * MEGABYTE
 
 
-class RTSConfigError(RuntimeError):
+class RtsConfigError(OurBaseException):
     """An error caused by an invalid RTS configuration."""
-
-    broken_invariant: str
-    """The invariant that was broken."""
-
-    def __init__(self, broken_invariant: str) -> None:
-        """Initialize the error."""
-        self.broken_invariant = broken_invariant
-        super().__init__(self.broken_invariant)
 
 
 @dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class RTSConfig:
+class RtsConfig:
     """An RTS configuration instance."""
 
     # TODO: Good god the names of some of these configurations are ugly.
@@ -64,7 +56,7 @@ class RTSConfig:
         """Ensure that the RTS configuration is valid."""
         # stack chunk buffer size (-kb) must be less than 50% of the stack chunk size (-kc)
         if self.kb >= self.kc / 2:
-            raise RTSConfigError(f"kb ({self.kb}) must be less than 50% of kc ({self.kc})")
+            raise RtsConfigError(f"kb ({self.kb}) must be less than 50% of kc ({self.kc})")
         pass
 
     def to_flags(self) -> Sequence[str]:

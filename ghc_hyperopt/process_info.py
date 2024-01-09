@@ -1,20 +1,23 @@
 import subprocess
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
-from logging import Logger
 from pathlib import Path
 from typing import Self
 
 import psutil
 
+from ghc_hyperopt.utils import OurBaseException, OurBaseModel, get_logger
 
-class ProcessError(Exception):
+logger = get_logger(__name__)
+
+
+class ProcessError(OurBaseException):
     """An error during execution of a process."""
 
+    pass
 
-@dataclass(frozen=True, unsafe_hash=True, slots=True, kw_only=True)
-class ProcessInfo:
+
+class ProcessInfo(OurBaseModel):
     """Information about a finished process."""
 
     args: Sequence[str]
@@ -40,8 +43,7 @@ class ProcessInfo:
         cls: type[Self],
         args: Sequence[str],
         project_path: Path,
-        logger: Logger,
-    ) -> Self:
+    ) -> ProcessError | Self:
         """Run a process."""
 
         # Monitor the process
@@ -71,19 +73,21 @@ class ProcessInfo:
         returncode = proc.wait()
         end_time: float = time.time()
 
-        kwargs = dict(
-            args=args,
-            time_total=end_time - start_time,
-            mem_peak=mem_peak,
-            returncode=returncode,
-            stdout=proc.stdout.read(),
-            stderr=proc.stderr.read(),
-        )
+        time_total: float = end_time - start_time
+        stdout: str = proc.stdout.read()
+        stderr: str = proc.stderr.read()
 
         if returncode != 0:
-            raise ProcessError(kwargs)
+            return ProcessError(f"Command {' '.join(args)} failed with return code {returncode}: {stderr}")
 
         logger.info("Command complete.")
 
         # Return the build info
-        return ProcessInfo(**kwargs)  # pyright: ignore[reportGeneralTypeIssues]
+        return cls(
+            args=args,
+            time_total=time_total,
+            mem_peak=mem_peak,
+            returncode=returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )

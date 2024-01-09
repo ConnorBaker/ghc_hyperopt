@@ -1,4 +1,5 @@
 from collections.abc import Set
+from typing import TypeAlias
 
 from pydantic import Field
 
@@ -78,4 +79,4 @@ class GhcOperatingSystemRequirement(OurBaseModel):
         return ghc_info.operating_system in self.operating_systems
 
 
-type GhcRequirement = GhcVersionRequirement | GhcArchitectureRequirement | GhcOperatingSystemRequirement
+GhcRequirement: TypeAlias = GhcVersionRequirement | GhcArchitectureRequirement | GhcOperatingSystemRequirement

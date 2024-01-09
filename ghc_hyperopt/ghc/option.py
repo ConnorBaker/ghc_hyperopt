@@ -1,14 +1,16 @@
 from collections.abc import Sequence
-from typing import Literal, Self, final, overload
+from typing import Generic, Literal, Self, TypeVar, final, overload
 
 from pydantic import Field, model_validator
 
 from ghc_hyperopt.ghc.requirement import GhcRequirement
 from ghc_hyperopt.utils import OurBaseModel
 
+A = TypeVar("A")
+
 
 @final
-class GhcOption[T](OurBaseModel):
+class GhcOption(OurBaseModel, Generic[A]):
     """
     Represents a GHC option.
     """
@@ -19,10 +21,10 @@ class GhcOption[T](OurBaseModel):
     flag_prefix: str
     """The prefix to use for the flag."""
 
-    default: T
+    default: A
     """The default value of the option."""
 
-    type: type[T]
+    type: type[A]
     """The value of the option."""
 
     kind: Literal["present_or_absent", "boolean", "arg"]
@@ -78,14 +80,14 @@ class GhcOption[T](OurBaseModel):
         self,
         use: Literal["value"],
         *,
-        value: T,
+        value: A,
     ) -> None | str: ...
 
     def to_flag(
         self,
         use: Literal["default", "value"],
         *,
-        value: None | T = None,
+        value: None | A = None,
     ) -> None | str:
         """
         Convert the option to a flag.

@@ -1,4 +1,4 @@
-from typing import final
+from typing import TypeAlias, final
 
 from ghc_hyperopt.process_info import ProcessError
 
@@ -24,4 +24,4 @@ class TastyBenchSuiteUnknownError(ProcessError):
     pass
 
 
-type TastyBenchSuiteError = TastyBenchmarkParseError | TastyBenchSuiteRuntimeError | TastyBenchSuiteUnknownError
+TastyBenchSuiteError: TypeAlias = TastyBenchmarkParseError | TastyBenchSuiteRuntimeError | TastyBenchSuiteUnknownError

@@ -78,7 +78,7 @@ class ProcessInfo(OurBaseModel):
         stderr: str = proc.stderr.read()
 
         if returncode != 0:
-            return ProcessError(f"Command {" ".join(args)} failed with return code {returncode}: {stderr}")
+            return ProcessError(f"Command {' '.join(args)} failed with return code {returncode}: {stderr}")
 
         logger.info("Command complete.")
 

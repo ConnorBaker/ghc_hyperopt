@@ -5,15 +5,21 @@ from typing import final, overload
 
 import optuna
 import tqdm
-from optuna import Study
+from optuna.study import Study
 from optuna.trial import FrozenTrial, Trial
 
+import wandb
 from ghc_hyperopt.cabal_build import CabalBuild, CabalBuildError
 from ghc_hyperopt.ghc.config import GhcConfig, GhcConfigError
 from ghc_hyperopt.process_info import ProcessError
 from ghc_hyperopt.rts_config import RtsConfig, RtsConfigError
 from ghc_hyperopt.tasty.bench_suite import TastyBenchSuite
-from ghc_hyperopt.tasty.benchmark import TastyBenchmarkOptimizationChoices
+from ghc_hyperopt.tasty.benchmark import (
+    TastyBenchmark,
+    TastyBenchmarkMemoryInfo,
+    TastyBenchmarkResult,
+    TastyBenchmarkTimeInfo,
+)
 from ghc_hyperopt.tasty.error import (
     TastyBenchmarkParseError,
     TastyBenchSuiteRuntimeError,
@@ -49,10 +55,10 @@ class GhcTuner(OurBaseModel):
     ghc_config: GhcConfig
     """The GHC configuration."""
 
-    optimization_choices: TastyBenchmarkOptimizationChoices
+    optimization_choices: TastyBenchmark[bool]
     """The optimization choices."""
 
-    baseline_trial_number: int
+    baseline: TastyBenchSuite
     """The baseline trial."""
 
     @staticmethod
@@ -89,7 +95,7 @@ class GhcTuner(OurBaseModel):
         study: Study,
         build_info: CabalBuild,
         bench_info: TastyBenchSuite,
-        optimization_choices: TastyBenchmarkOptimizationChoices,
+        optimization_choices: TastyBenchmark[bool],
     ) -> FrozenTrial:
         """
         Register the baseline trial.
@@ -97,7 +103,13 @@ class GhcTuner(OurBaseModel):
         trial = study.ask()
         trial.set_user_attr("baseline", True)
         GhcTuner._register_build(trial, build_info)
-        return GhcTuner._register_bench(study, trial, bench_info, optimization_choices)
+        return GhcTuner._register_bench(
+            study,
+            trial,
+            bench_info,
+            optimization_choices,
+            baseline=bench_info,
+        )
 
     @staticmethod
     def check_for_baseline(study: Study) -> None | FrozenTrial:
@@ -150,8 +162,11 @@ class GhcTuner(OurBaseModel):
         Build the project with the given flags.
         """
         if self is not None:
+            assert project_path is None
             project_path = self.project_path
+            assert component_name is None
             component_name = self.component_name
+            assert artifact_dir is None
             artifact_dir = self.artifact_dir
 
         assert project_path is not None
@@ -174,9 +189,16 @@ class GhcTuner(OurBaseModel):
         """
         Register the build info to the trial.
         """
-        trial.set_user_attr("build.component_name", build_info.component_name)
-        trial.set_user_attr("build.process_info.time_total", build_info.process_info.time_total)
-        trial.set_user_attr("build.process_info.mem_peak", build_info.process_info.mem_peak)
+        flattened = {
+            ("build", "component_name"): build_info.component_name,
+            ("build", "process_info", "time_total"): build_info.process_info.time_total,
+            ("build", "process_info", "mem_peak"): build_info.process_info.mem_peak,
+        }
+
+        for key, value in flattened.items():
+            trial.set_user_attr(".".join(key), value)
+
+        wandb.log({"/".join(key): value for key, value in flattened.items()})
 
     @staticmethod
     def _bench(build_info: CabalBuild) -> TastyBenchmarkParseError | TastyBenchSuiteRuntimeError | TastyBenchSuite:
@@ -196,29 +218,65 @@ class GhcTuner(OurBaseModel):
         study: Study,
         trial: Trial,
         bench_info: TastyBenchSuite,
-        optimization_choices: TastyBenchmarkOptimizationChoices,
+        optimization_choices: TastyBenchmark[bool],
+        baseline: TastyBenchSuite,
     ) -> FrozenTrial:
         """
         Register the benchmark info to the trial.
         """
-        # Add the overall benchmark info to the trial
-        trial.set_user_attr("bench.process_info.time_total", bench_info.process_info.time_total)
-        trial.set_user_attr("bench.process_info.mem_peak", bench_info.process_info.mem_peak)
 
-        # Add each benchmark to the trial
-        for benchmark in bench_info.benchmarks:
-            name = benchmark.name
-            trial.set_user_attr(f"bench.benchmark.{name}.time.mean", benchmark.time.mean)
-            trial.set_user_attr(f"bench.benchmark.{name}.time.stdev", benchmark.time.stdev)
-            trial.set_user_attr(f"bench.benchmark.{name}.mem.allocated", benchmark.mem.allocated)
-            trial.set_user_attr(f"bench.benchmark.{name}.mem.copied", benchmark.mem.copied)
-            trial.set_user_attr(f"bench.benchmark.{name}.mem.peak", benchmark.mem.peak)
+        # For logging to optuna and wandb
+        flattened = {}
+        # For reporting to optuna
+        flattened_percent_improvements: list[float] = []
+        # Pydantic lets us iterate over the fields of a model without converting sub-models to dicts
+        for metric_name, metric_value in bench_info.process_info:
+            flattened[("bench", "process_info", metric_name)] = metric_value
 
-        # Return the total time taken
-        frozen_trial = study.tell(trial, bench_info.gather_benchmark_results(optimization_choices))
+        for _benchmark, _baseline_benchmark in zip(bench_info.benchmarks, baseline.benchmarks, strict=True):
+            # Compute the percent improvement
+            benchmark: TastyBenchmark[TastyBenchmarkResult] = TastyBenchmark.from_raw(
+                _benchmark, baseline=_baseline_benchmark
+            )
 
-        tqdm.tqdm.write(f"Trial {frozen_trial.number} finished with values: {frozen_trial.values}")
-        tqdm.tqdm.write(f"Best trials are {" ".join(str(trial.number) for trial in study.best_trials)}")
+            # These shouldn't be in scope any more to prevent accidental usage
+            del _benchmark
+            del _baseline_benchmark
+
+            # Tasty separates the benchmark group name from the benchmark name with a '.'
+            benchmark_name_parts = benchmark.name.split(".")
+
+            for metric_type, metrics in benchmark:
+                if metric_type == "name":
+                    continue
+
+                match metrics:
+                    case TastyBenchmarkTimeInfo() | TastyBenchmarkMemoryInfo():
+                        for metric_name, metric_value in metrics:
+                            base_tuple = ("bench", "benchmark", *benchmark_name_parts, metric_type, metric_name)
+                            flattened[(*base_tuple, "raw")] = metric_value.raw
+                            flattened[(*base_tuple, "percent_improvement")] = metric_value.percent_improvement
+
+                            # Add the percent improvement to the list for if it is enabled in the optimization choices
+                            if getattr(getattr(optimization_choices, metric_type), metric_name):
+                                flattened_percent_improvements.append(metric_value.percent_improvement)
+                    case _:
+                        raise NotImplementedError(f"Unknown metric type {metric_type}")
+
+        # Add the flattened metrics to the trial
+        for key, value in flattened.items():
+            trial.set_user_attr(".".join(key), value)
+
+        # Add the flattened metrics to wandb
+        wandb.log({"/".join(key): value for key, value in flattened.items()})
+
+        # Return our metrics as a flat list for optuna
+        frozen_trial = study.tell(trial, flattened_percent_improvements)
+
+        tqdm.tqdm.write(
+            f"Trial {frozen_trial.number} finished with improvements over baseline (%): {frozen_trial.values}"
+        )
+        tqdm.tqdm.write(f"Best trials are {' '.join(str(trial.number) for trial in study.best_trials)}")
 
         return frozen_trial
 
@@ -258,6 +316,7 @@ class GhcTuner(OurBaseModel):
         Run one trial of the tuner.
         """
         trial = study.ask()
+        trial.set_user_attr("baseline", False)
 
         match GhcTuner._build(self.ghc_config.get_flags(trial), self=self):
             case CabalBuildError() as error:
@@ -271,4 +330,4 @@ class GhcTuner(OurBaseModel):
                 return self._prune(study, trial, error)
             case TastyBenchSuite() as bench_info:
                 shutil.rmtree(build_info.build_dir)
-                return self._register_bench(study, trial, bench_info, self.optimization_choices)
+                return self._register_bench(study, trial, bench_info, self.optimization_choices, self.baseline)

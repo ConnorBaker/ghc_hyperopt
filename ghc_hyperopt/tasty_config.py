@@ -38,7 +38,8 @@ class TastyConfig(OurBaseModel):
     def to_flags(self) -> Sequence[str]:
         """Convert the configuration to a list of flags."""
         flags: list[str] = []
-        for key, value in self.model_dump().items():
+        # NOTE: Pydantic lets us iterate over the fields of the model
+        for key, value in self:
             tasty_option_name = "--" + key.replace("_", "-")
             match value:
                 case None | False:

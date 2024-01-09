@@ -1,4 +1,6 @@
-from typing import Self, override
+from typing import Self
+
+from typing_extensions import override
 
 from ghc_hyperopt.utils import OurBaseModel
 

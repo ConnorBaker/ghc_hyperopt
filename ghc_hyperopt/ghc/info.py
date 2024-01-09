@@ -1,10 +1,10 @@
 import subprocess
-from typing import Literal, Self, final
+from typing import Literal, Self, TypeAlias, final
 
 from ghc_hyperopt.utils import OurBaseModel
 from ghc_hyperopt.version import Version
 
-type Architecture = Literal["x86_64", "aarch64", "ppc64le"]
+Architecture: TypeAlias = Literal["x86_64", "aarch64", "ppc64le"]
 _Architectures: set[Architecture] = {"x86_64", "aarch64", "ppc64le"}
 
 
@@ -15,7 +15,7 @@ def to_architecture(architecture: str) -> Architecture:
         return architecture
 
 
-type OperatingSystem = Literal["linux", "darwin", "windows"]
+OperatingSystem: TypeAlias = Literal["linux", "darwin", "windows"]
 _OperatingSystems: set[OperatingSystem] = {"linux", "darwin", "windows"}
 
 

@@ -68,7 +68,13 @@ class GhcTuner(OurBaseModel):
         artifact_dir: Path,
     ) -> tuple[CabalBuild, TastyBenchSuite]:
         match GhcTuner._build(
-            flags=["-rtsopts=all"],
+            flags=[
+                "-rtsopts=all",
+                # See https://github.com/Bodigrim/tasty-bench#troubleshooting
+                "-with-rtsopts=-A32m",
+                # See https://github.com/Bodigrim/tasty-bench#comparison-between-benchmarks
+                "-fproc-alignment=64",
+            ],
             project_path=project_path,
             component_name=component_name,
             artifact_dir=artifact_dir,
@@ -243,9 +249,7 @@ class GhcTuner(OurBaseModel):
             del _benchmark
             del _baseline_benchmark
 
-            # Tasty separates the benchmark group name from the benchmark name with a '.'
-            benchmark_name_parts = benchmark.name.split(".")
-
+            key_prefix = ("bench", "benchmark")
             for metric_type, metrics in benchmark:
                 if metric_type == "name":
                     continue
@@ -253,9 +257,11 @@ class GhcTuner(OurBaseModel):
                 match metrics:
                     case TastyBenchmarkTimeInfo() | TastyBenchmarkMemoryInfo():
                         for metric_name, metric_value in metrics:
-                            base_tuple = ("bench", "benchmark", *benchmark_name_parts, metric_type, metric_name)
-                            flattened[(*base_tuple, "raw")] = metric_value.raw
-                            flattened[(*base_tuple, "percent_improvement")] = metric_value.percent_improvement
+                            key_suffix = "-".join([benchmark.name, metric_type, metric_name])
+                            flattened[(*key_prefix, "raw", key_suffix)] = metric_value.raw
+                            flattened[(*key_prefix, "percent_improvement", key_suffix)] = (
+                                metric_value.percent_improvement
+                            )
 
                             # Add the percent improvement to the list for if it is enabled in the optimization choices
                             if getattr(getattr(optimization_choices, metric_type), metric_name):

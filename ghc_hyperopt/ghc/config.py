@@ -86,6 +86,10 @@ class GhcConfig:
         ghc_args = [
             "-O" + str(self.optimization),
             "-rtsopts=" + self.rtsopts,
+            # See https://github.com/Bodigrim/tasty-bench#troubleshooting
+            "-with-rtsopts=-A32m",
+            # See https://github.com/Bodigrim/tasty-bench#comparison-between-benchmarks
+            "-fproc-alignment=64",
             *fixed_flags,
             *tuneable_flags,
         ]

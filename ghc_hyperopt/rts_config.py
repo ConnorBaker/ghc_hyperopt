@@ -59,18 +59,20 @@ class RtsConfig:
             raise RtsConfigError(f"kb ({self.kb}) must be less than 50% of kc ({self.kc})")
         pass
 
-    def to_flags(self) -> Sequence[str]:
+    @staticmethod
+    def to_flags() -> Sequence[str]:
         """Convert the configuration to a sequence of flags."""
 
-        options: list[str] = list(self.__slots__)
+        # options: list[str] = list(self.__slots__)
         # Must always collect GC statistics (useful for in-program statistics access)
         flags: list[str] = ["+RTS", "-T"]
-        for option in options:
-            match getattr(self, option):
-                case int(n):
-                    flags.append(f"-{option}{n}")
-                case _:
-                    raise NotImplementedError(f"Option {option} is not implemented.")
+        # TODO: Pending rework of RTS options similar to GHC options
+        # for option in options:
+        #     match getattr(self, option):
+        #         case int(n):
+        #             flags.append(f"-{option}{n}")
+        #         case _:
+        #             raise NotImplementedError(f"Option {option} is not implemented.")
 
         flags.append("-RTS")
         return flags

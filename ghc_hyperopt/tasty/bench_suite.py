@@ -42,6 +42,7 @@ class TastyBenchSuite(OurBaseModel):
             args=[
                 executable_path.as_posix(),
                 "--quiet",
+                "--stdev=2",  # That's 2% standard deviation
                 "--csv=/dev/stdout",
                 *tasty_config.to_flags(),
                 *rts_config.to_flags(),

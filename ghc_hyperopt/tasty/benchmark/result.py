@@ -1,14 +1,10 @@
-from typing import TypeVar, final
+from typing import Self, TypeVar, final
 
-from ghc_hyperopt.utils import OurBaseModel
+from ghc_hyperopt.utils import OurBaseModel, percent_improvement
 
 A = TypeVar("A")
 B = TypeVar("B")
 C = TypeVar("C")
-
-
-# NOTE: Issues with recursive generics:
-# https://github.com/pydantic/pydantic/issues/7096#issuecomment-1678031081
 
 
 @final
@@ -20,3 +16,10 @@ class TastyBenchmarkResult(OurBaseModel):
 
     percent_improvement: float
     """The percent improvement."""
+
+    @classmethod
+    def from_raw(cls, raw: int, baseline: int) -> Self:
+        return cls(
+            raw=raw,
+            percent_improvement=percent_improvement(raw, baseline),
+        )

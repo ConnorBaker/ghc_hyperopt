@@ -10,10 +10,6 @@ B = TypeVar("B")
 C = TypeVar("C")
 
 
-# NOTE: Issues with recursive generics:
-# https://github.com/pydantic/pydantic/issues/7096#issuecomment-1678031081
-
-
 @final
 class TastyBenchmarkMemoryInfo(OurBaseModel, Generic[A]):
     """Information from the RTS about the memory usage of a single benchmark."""
@@ -45,3 +41,10 @@ class TastyBenchmarkMemoryInfo(OurBaseModel, Generic[A]):
         f: Callable[[A, B], C],
     ) -> TastyBenchmarkMemoryInfo[C]:
         return self.zip(other).fmap(lambda t: f(*t))
+
+    @classmethod
+    def pure(cls, x: A) -> TastyBenchmarkMemoryInfo[A]:
+        return TastyBenchmarkMemoryInfo[A].model_validate(
+            {k: x for k in cls.model_fields.keys()},
+            strict=True,
+        )

@@ -1,4 +1,5 @@
 import logging
+import math
 from collections.abc import Callable, Sequence
 from typing import Any, Self, TypeAlias, TypeVar
 
@@ -99,3 +100,8 @@ def get_logger(name: str) -> logging.Logger:
     handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
     logger.addHandler(handler)
     return logger
+
+
+def percent_improvement(new: float, old: float) -> float:
+    denom = math.copysign(1e-6, old) if math.isclose(old, 0) else old
+    return (new - old) / denom * 100.0

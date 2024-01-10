@@ -1,9 +1,9 @@
 import logging
 import sys
 from argparse import Namespace
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import optuna
 import tqdm
@@ -12,48 +12,24 @@ from optuna.trial import Trial
 
 import wandb
 from ghc_hyperopt.cli import get_arg_parser
+from ghc_hyperopt.config import (
+    StudyDirection,
+    get_optimization_direction,
+)
+from ghc_hyperopt.default_config import (
+    OPTIMIZATION_CHOICES,
+    OPTIMIZATION_DIRECTIONS,
+    OPTIMIZATION_WEIGHTS,
+)
 from ghc_hyperopt.ghc.config import GhcConfig
 from ghc_hyperopt.ghc.info import GhcInfo
 from ghc_hyperopt.ghc.options import GhcOption, get_all_ghc_options, get_all_ghc_options_optuna_samplers
 from ghc_hyperopt.ghc.options.questionable import GhcQuestionableOptions
 from ghc_hyperopt.ghc.tuner import GhcTuner
-from ghc_hyperopt.tasty.benchmark import (
-    TastyBenchmark,
-    TastyBenchmarkMemoryInfo,
-    TastyBenchmarkTimeInfo,
-)
+from ghc_hyperopt.tasty.benchmark import TastyBenchmark
 from ghc_hyperopt.utils import SampleFn, get_logger
 
 logger = get_logger(__name__)
-
-# NOTE: We are MAXIMIZING the percent improvement -- that's our objective function.
-OPTIMIZATION_DIRECTIONS: TastyBenchmark[Literal["maximize", "minimize"]] = TastyBenchmark[
-    Literal["maximize", "minimize"]
-](
-    name="OPTIMIZATION_DIRECTIONS",
-    time=TastyBenchmarkTimeInfo[Literal["maximize", "minimize"]](
-        mean="maximize",
-        stdev="maximize",
-    ),
-    mem=TastyBenchmarkMemoryInfo[Literal["maximize", "minimize"]](
-        allocated="maximize",
-        copied="maximize",
-        peak="maximize",
-    ),
-)
-
-OPTIMIZATION_CHOICES: TastyBenchmark[bool] = TastyBenchmark[bool](
-    name="optimization_choices",
-    time=TastyBenchmarkTimeInfo[bool](
-        mean=True,
-        stdev=False,
-    ),
-    mem=TastyBenchmarkMemoryInfo[bool](
-        allocated=False,
-        copied=False,
-        peak=False,
-    ),
-)
 
 
 def mk_ghc_config(args: Namespace) -> GhcConfig:
@@ -94,7 +70,11 @@ def mk_ghc_config(args: Namespace) -> GhcConfig:
     )
 
 
-def mk_study(artifact_dir: Path, optimization_directions: Sequence[Literal["maximize", "minimize"]]) -> Study:
+def mk_study(
+    artifact_dir: Path,
+    optimization_choices: TastyBenchmark[bool],
+    optimization_directions: TastyBenchmark[StudyDirection],
+) -> Study:
     # Make sure the artifact directory exists
     db_path = artifact_dir / "ghc_hyperopt.db"
 
@@ -102,7 +82,7 @@ def mk_study(artifact_dir: Path, optimization_directions: Sequence[Literal["maxi
     optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
     return optuna.create_study(
         study_name="ghc_hyperopt",
-        directions=optimization_directions,
+        direction=get_optimization_direction(optimization_choices, optimization_directions),
         storage=optuna.storages.RDBStorage(
             url="sqlite:///" + db_path.as_posix(),
         ),
@@ -130,26 +110,29 @@ def tune_ghc_options(args: Namespace) -> None:
         artifact_dir=artifact_dir,
     )
 
-    # Get the optimization directions (minimize for each optimization choice for each benchmark)
-    optimization_directions: Sequence[Literal["maximize", "minimize"]] = [
-        direction
-        # Currently we optimize the same way for all benchmarks
-        for _ in baseline_bench_info.benchmarks
-        for enabled, direction in zip(OPTIMIZATION_CHOICES.to_list(), OPTIMIZATION_DIRECTIONS.to_list())
-        if enabled
-    ]
+    optimization_choices: TastyBenchmark[bool] = OPTIMIZATION_CHOICES
+    optimization_directions: TastyBenchmark[StudyDirection] = OPTIMIZATION_DIRECTIONS
+    optimization_weights: Mapping[str, TastyBenchmark[float]] = OPTIMIZATION_WEIGHTS
 
     ghc_config = mk_ghc_config(args)
-    study = mk_study(artifact_dir, optimization_directions)
+    study = mk_study(artifact_dir, optimization_choices, optimization_directions)
     _ = wandb.init(project="my-awesome-project")
-    baseline = GhcTuner.register_baseline(study, baseline_build_info, baseline_bench_info, OPTIMIZATION_CHOICES)
+    baseline = GhcTuner.register_baseline(
+        study,
+        baseline_build_info,
+        baseline_bench_info,
+        optimization_choices,
+        optimization_weights,
+    )
 
     ghc_tuner = GhcTuner(
         project_path=args.project_path,
         component_name=args.component_name,
         artifact_dir=args.artifact_dir,
         ghc_config=ghc_config,
-        optimization_choices=OPTIMIZATION_CHOICES,
+        optimization_choices=optimization_choices,
+        optimization_directions=optimization_directions,
+        optimization_weights=optimization_weights,
         baseline=baseline_bench_info,
     )
 
@@ -159,7 +142,7 @@ def tune_ghc_options(args: Namespace) -> None:
     logger.info("Beginning study")
 
     # Begin the study
-    for _ in range_fn(1000):
+    for _ in range_fn(5000):
         _ = ghc_tuner.tune(study)
 
     print("Number of finished trials: ", len(study.trials))

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import Generic, TypeVar, final
 
@@ -13,10 +12,6 @@ from ghc_hyperopt.utils import OurBaseModel
 A = TypeVar("A")
 B = TypeVar("B")
 C = TypeVar("C")
-
-
-# NOTE: Issues with recursive generics:
-# https://github.com/pydantic/pydantic/issues/7096#issuecomment-1678031081
 
 
 @final
@@ -51,10 +46,13 @@ class TastyBenchmark(OurBaseModel, Generic[A]):
     ) -> TastyBenchmark[C]:
         return self.zip(other).fmap(lambda t: f(*t))
 
-    @staticmethod
-    def percent_improvement(new: float, old: float) -> float:
-        denom = math.copysign(1e-6, old) if math.isclose(old, 0) else old
-        return (new - old) / denom * 100
+    @classmethod
+    def pure(cls, x: A) -> TastyBenchmark[A]:
+        return TastyBenchmark[A](
+            name="",
+            time=TastyBenchmarkTimeInfo[A].pure(x),
+            mem=TastyBenchmarkMemoryInfo[A].pure(x),
+        )
 
     @staticmethod
     def from_csv(row: Mapping[str, str]) -> TastyBenchmarkParseError | TastyBenchmark[int]:
@@ -77,21 +75,6 @@ class TastyBenchmark(OurBaseModel, Generic[A]):
             return TastyBenchmarkParseError(
                 f"Could not create {TastyBenchmark[TastyBenchmarkResult].__name__} from {row}"
             ).with_traceback(e.__traceback__)
-
-    @staticmethod
-    def from_raw(
-        benchmark: TastyBenchmark[int],
-        baseline: TastyBenchmark[int],
-    ) -> TastyBenchmark[TastyBenchmarkResult]:
-        """Convert a benchmark from raw values to a percent improvement."""
-        assert benchmark.name == baseline.name
-        return benchmark.zip_with(
-            baseline,
-            lambda new, old: TastyBenchmarkResult(
-                raw=new,
-                percent_improvement=TastyBenchmark.percent_improvement(new, old),
-            ),
-        )
 
     def to_list(self) -> Sequence[A]:
         """Convert the benchmark to a list."""

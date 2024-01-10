@@ -1,5 +1,5 @@
 import shutil
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import final, overload
 
@@ -10,15 +10,14 @@ from optuna.trial import FrozenTrial, Trial
 
 import wandb
 from ghc_hyperopt.cabal_build import CabalBuild, CabalBuildError
+from ghc_hyperopt.config import StudyDirection, objective
 from ghc_hyperopt.ghc.config import GhcConfig, GhcConfigError
 from ghc_hyperopt.process_info import ProcessError
 from ghc_hyperopt.rts_config import RtsConfig, RtsConfigError
 from ghc_hyperopt.tasty.bench_suite import TastyBenchSuite
 from ghc_hyperopt.tasty.benchmark import (
     TastyBenchmark,
-    TastyBenchmarkMemoryInfo,
     TastyBenchmarkResult,
-    TastyBenchmarkTimeInfo,
 )
 from ghc_hyperopt.tasty.error import (
     TastyBenchmarkParseError,
@@ -57,6 +56,12 @@ class GhcTuner(OurBaseModel):
 
     optimization_choices: TastyBenchmark[bool]
     """The optimization choices."""
+
+    optimization_directions: TastyBenchmark[StudyDirection]
+    """The optimization directions for each metric."""
+
+    optimization_weights: Mapping[str, TastyBenchmark[float]]
+    """The weights for each metric."""
 
     baseline: TastyBenchSuite
     """The baseline trial."""
@@ -102,6 +107,7 @@ class GhcTuner(OurBaseModel):
         build_info: CabalBuild,
         bench_info: TastyBenchSuite,
         optimization_choices: TastyBenchmark[bool],
+        optimization_weights: Mapping[str, TastyBenchmark[float]],
     ) -> FrozenTrial:
         """
         Register the baseline trial.
@@ -113,25 +119,10 @@ class GhcTuner(OurBaseModel):
             study,
             trial,
             bench_info,
+            bench_info,
             optimization_choices,
-            baseline=bench_info,
+            optimization_weights,
         )
-
-    @staticmethod
-    def check_for_baseline(study: Study) -> None | FrozenTrial:
-        """
-        Create or get the baseline trial.
-        """
-        # Check if the baseline already exists
-        baselines = [trial for trial in study.trials if trial.user_attrs.get("baseline", False)]
-
-        match baselines:
-            case []:
-                return None
-            case [baseline]:
-                return baseline
-            case _:
-                raise GhcTunerMultipleBaselinesError("Multiple baselines found; delete the database and try again")
 
     @overload
     @staticmethod
@@ -220,12 +211,13 @@ class GhcTuner(OurBaseModel):
         )
 
     @staticmethod
-    def _register_bench(
+    def _register_bench(  # noqa: PLR0917
         study: Study,
         trial: Trial,
         bench_info: TastyBenchSuite,
-        optimization_choices: TastyBenchmark[bool],
         baseline: TastyBenchSuite,
+        optimization_choices: TastyBenchmark[bool],
+        optimization_weights: Mapping[str, TastyBenchmark[float]],
     ) -> FrozenTrial:
         """
         Register the benchmark info to the trial.
@@ -233,41 +225,22 @@ class GhcTuner(OurBaseModel):
 
         # For logging to optuna and wandb
         flattened = {}
-        # For reporting to optuna
-        flattened_percent_improvements: list[float] = []
+
         # Pydantic lets us iterate over the fields of a model without converting sub-models to dicts
         for metric_name, metric_value in bench_info.process_info:
             flattened[("bench", "process_info", metric_name)] = metric_value
 
-        for _benchmark, _baseline_benchmark in zip(bench_info.benchmarks, baseline.benchmarks, strict=True):
-            # Compute the percent improvement
-            benchmark: TastyBenchmark[TastyBenchmarkResult] = TastyBenchmark.from_raw(
-                _benchmark, baseline=_baseline_benchmark
-            )
-
-            # These shouldn't be in scope any more to prevent accidental usage
-            del _benchmark
-            del _baseline_benchmark
-
+        for benchmark, baseline_benchmark in zip(bench_info.benchmarks, baseline.benchmarks, strict=True):
             key_prefix = ("bench", "benchmark")
-            for metric_type, metrics in benchmark:
+            for metric_type, metrics in benchmark.zip_with(baseline_benchmark, TastyBenchmarkResult.from_raw):
                 if metric_type == "name":
                     continue
 
-                match metrics:
-                    case TastyBenchmarkTimeInfo() | TastyBenchmarkMemoryInfo():
-                        for metric_name, metric_value in metrics:
-                            key_suffix = "-".join([benchmark.name, metric_type, metric_name])
-                            flattened[(*key_prefix, "raw", key_suffix)] = metric_value.raw
-                            flattened[(*key_prefix, "percent_improvement", key_suffix)] = (
-                                metric_value.percent_improvement
-                            )
-
-                            # Add the percent improvement to the list for if it is enabled in the optimization choices
-                            if getattr(getattr(optimization_choices, metric_type), metric_name):
-                                flattened_percent_improvements.append(metric_value.percent_improvement)
-                    case _:
-                        raise NotImplementedError(f"Unknown metric type {metric_type}")
+                for metric_name, metric_value in metrics:
+                    assert isinstance(metric_value, TastyBenchmarkResult)
+                    key_suffix = "-".join([benchmark.name, metric_type, metric_name])
+                    flattened[(*key_prefix, "raw", key_suffix)] = metric_value.raw
+                    flattened[(*key_prefix, "percent_improvement", key_suffix)] = metric_value.percent_improvement
 
         # Add the flattened metrics to the trial
         for key, value in flattened.items():
@@ -276,8 +249,16 @@ class GhcTuner(OurBaseModel):
         # Add the flattened metrics to wandb
         wandb.log({"/".join(key): value for key, value in flattened.items()})
 
+        # Combine the percent improvements into a single value, weighted by the optimization choices
+        objective_value: float = objective(
+            bench_info,
+            optimization_choices,
+            optimization_weights,
+            baseline,
+        )
+
         # Return our metrics as a flat list for optuna
-        frozen_trial = study.tell(trial, flattened_percent_improvements)
+        frozen_trial = study.tell(trial, objective_value)
 
         tqdm.tqdm.write(
             f"Trial {frozen_trial.number} finished with improvements over baseline (%): {frozen_trial.values}"
@@ -336,4 +317,11 @@ class GhcTuner(OurBaseModel):
                 return self._prune(study, trial, error)
             case TastyBenchSuite() as bench_info:
                 shutil.rmtree(build_info.build_dir)
-                return self._register_bench(study, trial, bench_info, self.optimization_choices, self.baseline)
+                return self._register_bench(
+                    study,
+                    trial,
+                    bench_info,
+                    self.baseline,
+                    self.optimization_choices,
+                    self.optimization_weights,
+                )

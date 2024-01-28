@@ -1,11 +1,9 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Data.GHC.HyperOpt.Harness where
 
 import Control.Applicative (Applicative (pure, (<*>)))
 import Control.Monad (Monad (return, (>>=)))
 import Data.ByteString.Lazy.Char8 (ByteString)
-import Data.Function ((&), (.))
+import Data.Function ((&))
 import Data.Functor (Functor (fmap), (<$>))
 import Data.String (IsString (fromString))
 import Data.Text (Text)

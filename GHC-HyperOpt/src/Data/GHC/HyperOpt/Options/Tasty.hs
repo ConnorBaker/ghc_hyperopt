@@ -1,67 +1,71 @@
 module Data.GHC.HyperOpt.Options.Tasty where
 
-import Data.Bool (Bool (False, True))
+import Data.Bool (Bool)
 import Data.GHC.HyperOpt.Flags
   ( Flag (..),
-    FlagAppearance (..),
     FlagKind (MkFlagKind),
-    Size (KiloBytes, MegaBytes),
+    FlagPresent (..),
+    FlagWithValue (..),
+    FlagWithValueKind (..),
   )
 import Data.GHC.HyperOpt.Options
   ( Option (..),
-    ReifiableOption (MkReifiableOption),
+    ReifiableOption (..),
     reifyOptions,
   )
 import Data.Int (Int)
 import Data.String (IsString (fromString))
 import Data.Text (Text)
-import GHC.Num (fromInteger)
+import GHC.Num (Num (fromInteger))
 import System.IO (FilePath)
 
 -- | Sets the number of threads to use (default: # of cores/capabilities)
-numThreads :: Option ('MkFlagKind 'FlagAppearanceWithValueOrAbsent Int)
+numThreads :: Option ('MkFlagKind ('WithValue 'AfterEqualsSign) Int)
 numThreads =
   MkOption
     { flagPrefix = "--",
       flagName = "num-threads",
-      flag = FlagWithInt
+      flag = FlagInt AfterEqualsSignKind
     }
 
 -- | Do not produce any output; indicate success only by the exit code (default: False)
-quiet :: Option ('MkFlagKind 'FlagAppearanceWithoutValueOrAbsent Bool)
+quiet :: Option ('MkFlagKind 'WithoutValue Bool)
 quiet =
   MkOption
     { flagPrefix = "--",
       flagName = "quiet",
-      flag = FlagWithoutValueOrAbsent
+      flag = FlagSettable
     }
 
 -- | File to write results in CSV format
-csv :: Option ('MkFlagKind 'FlagAppearanceWithValueOrAbsent FilePath)
+csv :: Option ('MkFlagKind ('WithValue 'AfterEqualsSign) FilePath)
 csv =
   MkOption
     { flagPrefix = "--",
       flagName = "csv",
-      flag = FlagWithFilePath
+      flag = FlagString AfterEqualsSignKind
     }
 
 -- | Target relative standard deviation of measurements in percents (5 by default). Large values correspond to fast
 -- and loose benchmarks, and small ones to long and precise. If it takes far too long, consider setting @--timeout@,
 -- which will interrupt benchmarks, potentially before reaching the target deviation.
-stdev :: Option ('MkFlagKind 'FlagAppearanceWithValueOrAbsent Int)
+stdev :: Option ('MkFlagKind ('WithValue 'AfterEqualsSign) Int)
 stdev =
   MkOption
     { flagPrefix = "--",
       flagName = "stdev",
-      flag = FlagWithInt
+      flag = FlagInt AfterEqualsSignKind
     }
 
--- sampleReifiedOptions :: [Text]
--- sampleReifiedOptions =
---   reifyOptions
---     [ (MkReifiableOption nonmovingGC True),
---       (MkReifiableOption initialThreadStackSize (KiloBytes 100))
---     ]
+sampleReifiedOptions :: [Text]
+sampleReifiedOptions =
+  reifyOptions
+    [ (MkReifiableOption csv "ooooooga booga"),
+      (MkReifiableOption numThreads 100)
+    ]
+
+-- >>> sampleReifiedOptions
+-- ["--csv=ooooooga booga","--num-threads=100"]
 
 -- Available options:
 --   -h,--help                Show this help text

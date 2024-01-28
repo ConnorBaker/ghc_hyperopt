@@ -2,12 +2,11 @@ module Data.GHC.HyperOpt.Options.RTS where
 
 import Data.Bool (Bool (True))
 import Data.GHC.HyperOpt.Flags
-  ( Flag (FlagWithoutValueOrAbsent, FlagWithSize),
-    FlagAppearance
-      ( FlagAppearanceWithoutValueOrAbsent,
-        FlagAppearanceWithValueOrAbsent
-      ),
+  ( Flag (..),
     FlagKind (MkFlagKind),
+    FlagPresent (..),
+    FlagWithValue (..),
+    FlagWithValueKind (..),
     Size (KiloBytes),
   )
 import Data.GHC.HyperOpt.Options
@@ -20,66 +19,66 @@ import Data.Text (Text)
 import GHC.Num (fromInteger)
 
 -- -- | Selects the non-moving mark-and-sweep garbage collector to manage the oldest generation (default: False)
-nonmovingGC :: Option ('MkFlagKind 'FlagAppearanceWithoutValueOrAbsent Bool)
+nonmovingGC :: Option ('MkFlagKind 'WithoutValue Bool)
 nonmovingGC =
   MkOption
     { flagPrefix = "--",
       flagName = "nonmoving-gc",
-      flag = FlagWithoutValueOrAbsent
+      flag = FlagSettable
     }
 
 -- | Selects the copying garbage collector to manage all generations (default: False)
-copyingGC :: Option ('MkFlagKind 'FlagAppearanceWithoutValueOrAbsent Bool)
+copyingGC :: Option ('MkFlagKind 'WithoutValue Bool)
 copyingGC =
   MkOption
     { flagPrefix = "--",
       flagName = "copying-gc",
-      flag = FlagWithoutValueOrAbsent
-    }
-
--- | Sets the initial thread stack size (default 1k)  e.g.: -ki4k -ki2m
-initialThreadStackSize :: Option ('MkFlagKind 'FlagAppearanceWithValueOrAbsent Size)
-initialThreadStackSize =
-  MkOption
-    { flagPrefix = "-",
-      flagName = "ki",
-      flag = FlagWithSize
-    }
-
--- | Sets the stack chunk size (default 32k)
-stackChunkSize :: Option ('MkFlagKind 'FlagAppearanceWithValueOrAbsent Size)
-stackChunkSize =
-  MkOption
-    { flagPrefix = "-",
-      flagName = "kc",
-      flag = FlagWithSize
-    }
-
--- | Sets the stack chunk buffer size (default 1k)
-stackChunkBufferSize :: Option ('MkFlagKind 'FlagAppearanceWithValueOrAbsent Size)
-stackChunkBufferSize =
-  MkOption
-    { flagPrefix = "-",
-      flagName = "kb",
-      flag = FlagWithSize
-    }
-
--- | Sets the minimum allocation area size (default 4m) e.g.: -A20m -A10k
-minimumAllocationAreaSize :: Option ('MkFlagKind 'FlagAppearanceWithValueOrAbsent Size)
-minimumAllocationAreaSize =
-  MkOption
-    { flagPrefix = "-",
-      flagName = "A",
-      flag = FlagWithSize
+      flag = FlagSettable
     }
 
 -- | Use mark-region for the oldest generation (experimental) (default: False)
-markRegionForOldestGeneration :: Option ('MkFlagKind 'FlagAppearanceWithoutValueOrAbsent Bool)
+markRegionForOldestGeneration :: Option ('MkFlagKind 'WithoutValue Bool)
 markRegionForOldestGeneration =
   MkOption
     { flagPrefix = "-",
       flagName = "w",
-      flag = FlagWithoutValueOrAbsent
+      flag = FlagNegatable
+    }
+
+-- | Sets the initial thread stack size (default 1k)  e.g.: -ki4k -ki2m
+initialThreadStackSize :: Option ('MkFlagKind ('WithValue 'ImmediatelyAfterFlag) Size)
+initialThreadStackSize =
+  MkOption
+    { flagPrefix = "-",
+      flagName = "ki",
+      flag = FlagSize ImmediatelyAfterFlagKind
+    }
+
+-- | Sets the stack chunk size (default 32k)
+stackChunkSize :: Option ('MkFlagKind ('WithValue 'ImmediatelyAfterFlag) Size)
+stackChunkSize =
+  MkOption
+    { flagPrefix = "-",
+      flagName = "kc",
+      flag = FlagSize ImmediatelyAfterFlagKind
+    }
+
+-- | Sets the stack chunk buffer size (default 1k)
+stackChunkBufferSize :: Option ('MkFlagKind ('WithValue 'ImmediatelyAfterFlag) Size)
+stackChunkBufferSize =
+  MkOption
+    { flagPrefix = "-",
+      flagName = "kb",
+      flag = FlagSize ImmediatelyAfterFlagKind
+    }
+
+-- | Sets the minimum allocation area size (default 4m) e.g.: -A20m -A10k
+minimumAllocationAreaSize :: Option ('MkFlagKind ('WithValue 'ImmediatelyAfterFlag) Size)
+minimumAllocationAreaSize =
+  MkOption
+    { flagPrefix = "-",
+      flagName = "A",
+      flag = FlagSize ImmediatelyAfterFlagKind
     }
 
 sampleReifiedOptions :: [Text]
@@ -88,6 +87,9 @@ sampleReifiedOptions =
     [ (MkReifiableOption nonmovingGC True),
       (MkReifiableOption initialThreadStackSize (KiloBytes 100))
     ]
+
+-- >>> sampleReifiedOptions
+-- ["--nonmoving-gc","-ki100k"]
 
 -- TODO: Constraint: nonmovingGC and copyingGC are mutually exclusive
 

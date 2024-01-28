@@ -1,0 +1,84 @@
+cabal-version: 3.8
+name:          GHC-HyperOpt
+version:       0.1.0.0
+license:       BSD-3-Clause
+copyright:     Connor Baker 2024
+maintainer:    Connor Baker <connorbaker01@gmail.com>
+author:        Connor Baker <connorbaker01@gmail.com>
+tested-with:   ghc ==9.8
+homepage:      https://github.com/ConnorBaker/ghc_hyperopt
+bug-reports:   https://github.com/ConnorBaker/ghc_hyperopt
+synopsis:      Optimize GHC flags using hyperoptimization
+description:   Optimize GHC flags using hyperoptimization
+category:      Tools
+build-type:    Simple
+
+source-repository head
+    type:     git
+    location: https://github.com/ConnorBaker/ghc_hyperopt.git
+    subdir:   GHC-Hyperopt
+
+library
+    exposed-modules:
+        Data.GHC.HyperOpt.Harness
+        Data.GHC.HyperOpt.Benchmark
+        Data.GHC.HyperOpt.Flags
+        Data.GHC.HyperOpt.Options
+        Data.GHC.HyperOpt.Options.RTS
+        Data.GHC.HyperOpt.Options.Tasty
+    hs-source-dirs:     src
+    default-language:   GHC2021
+    default-extensions:
+        AllowAmbiguousTypes ApplicativeDo BlockArguments DataKinds DerivingVia GADTs
+        InstanceSigs LambdaCase MonoLocalBinds NoFieldSelectors OverloadedRecordDot
+        OverloadedRecordUpdate OverloadedStrings RebindableSyntax
+        RecordWildCards ScopedTypeVariables
+
+    ghc-options:        -Wall -threaded
+    build-depends:
+        base,
+        bytestring,
+        -- ghc==9.8.1, -- Should eventually integrate with the GHC API to get flags
+        text,
+        typed-process,
+        unordered-containers
+
+executable ghc-hyperopt
+    main-is:            Main.hs
+    hs-source-dirs:     app
+    default-language:   GHC2021
+    default-extensions:
+        AllowAmbiguousTypes ApplicativeDo BlockArguments DerivingVia
+        InstanceSigs LambdaCase OverloadedRecordDot OverloadedRecordUpdate
+        OverloadedStrings RebindableSyntax RecordWildCards
+        ScopedTypeVariables
+
+    ghc-options:        -Wall
+    build-depends:
+        aeson,
+        base,
+        filepath,
+        optparse-applicative,
+        text,
+        unordered-containers
+
+test-suite ghc-hyperopt-test
+    type:             exitcode-stdio-1.0
+    main-is:          Main.hs
+    hs-source-dirs:   test
+    default-language: GHC2021
+    ghc-options:      -Wall
+    default-extensions:
+        OverloadedStrings
+    other-modules:
+        ParseBenchmarkTests
+    build-depends:
+        base,
+        hedgehog,
+        GHC-HyperOpt,
+        leancheck,
+        tasty,
+        tasty-hedgehog,
+        tasty-hunit,
+        tasty-leancheck,
+        text

@@ -1,0 +1,22 @@
+packages:
+    ./GHC-HyperOpt.cabal
+
+jobs: $ncpus
+
+tests: true
+benchmarks: true
+
+index-state:
+    , hackage.haskell.org 2024-01-26T23:40:27Z
+
+package *
+    ghc-options: -Wall -O2 -XApplicativeDo -foptimal-applicative-do
+
+-- Both tasty and hedgehog don't work with ApplicativeDo enabled:
+-- https://github.com/UnkindPartition/tasty/pull/405
+
+package tasty
+    ghc-options: -XNoApplicativeDo -fno-optimal-applicative-do
+
+package hedgehog
+    ghc-options: -XNoApplicativeDo -fno-optimal-applicative-do

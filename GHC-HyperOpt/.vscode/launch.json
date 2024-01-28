@@ -1,0 +1,38 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "FibHaskell",
+            "type": "python",
+            "request": "launch",
+            "program": "ghc_hyperopt/__main__.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--project-path=./FibHaskell",
+                "--component-name=bench:bench-fib",
+                "--artifact-dir=./FibHaskell-artifacts",
+                "--tune-ghc",
+                "--tune-ghc-all"
+            ]
+        },
+        {
+            "name": "Vec",
+            "type": "python",
+            "request": "launch",
+            "program": "ghc_hyperopt/__main__.py",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--project-path=./vector/vector",
+                "--component-name=bench:algorithms",
+                "--artifact-dir=./vector-artifacts",
+                "--tune-ghc",
+                "--tune-ghc-all"
+            ]
+        }
+    ]
+}

@@ -1,0 +1,6 @@
+{
+    "python.analysis.typeCheckingMode": "strict",
+    "python.analysis.useLibraryCodeForTypes": true,
+    "haskell.plugin.semanticTokens.globalOn": true,
+    "haskell.serverExecutablePath": "/Users/connorbaker/.local/bin/haskell-language-server",
+}

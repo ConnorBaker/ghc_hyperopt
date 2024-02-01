@@ -81,6 +81,14 @@ minimumAllocationAreaSize =
       flag = FlagSize ImmediatelyAfterFlagKind
     }
 
+collectGcStatistics :: Option ('MkFlagKind 'WithoutValue Bool)
+collectGcStatistics =
+  MkOption
+    { flagPrefix = "-",
+      flagName = "T",
+      flag = FlagSettable
+    }
+
 sampleReifiedOptions :: [Text]
 sampleReifiedOptions =
   reifyOptions

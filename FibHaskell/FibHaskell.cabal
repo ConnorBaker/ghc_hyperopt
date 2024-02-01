@@ -26,9 +26,6 @@ benchmark bench-fib
         AllowAmbiguousTypes ApplicativeDo InstanceSigs LambdaCase
         ScopedTypeVariables
 
-    ghc-options:
-        -Wall -fproc-alignment=64
-
     build-depends:
         base,
         tasty-bench

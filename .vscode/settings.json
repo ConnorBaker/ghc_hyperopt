@@ -1,4 +1,19 @@
 {
     "python.analysis.typeCheckingMode": "strict",
-    "python.analysis.useLibraryCodeForTypes": true
+    "python.analysis.useLibraryCodeForTypes": true,
+    "editor.semanticHighlighting.enabled": true,
+    "haskell.plugin.semanticTokens.config.tokenMapping": {
+        "class": "class",
+        "classMethod": "method",
+        "dataCon": "enumMember",
+        "function": "function",
+        "patternSyn": "macro",
+        "recField": "property",
+        "typeCon": "enum",
+        "typeFamily": "interface",
+        "typeSyn": "type",
+        "typeVariable": "typeParameter",
+        "variable": "variable"
+    },
+    "haskell.plugin.semanticTokens.globalOn": true,
 }

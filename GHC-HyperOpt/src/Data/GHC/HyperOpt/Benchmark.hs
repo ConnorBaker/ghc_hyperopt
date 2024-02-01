@@ -57,7 +57,7 @@ parseBenchmarks =
   let checkHeader :: Text -> Maybe Text
       checkHeader = \case
         "Name,Mean (ps),2*Stdev (ps),Allocated,Copied,Peak Memory" -> Nothing
-        _ -> Just "Header does not match expected header"
+        unexpected -> Just $ "Header does not match expected header: " <> unexpected
 
       textToNatural :: Text -> Either Text Natural
       textToNatural =

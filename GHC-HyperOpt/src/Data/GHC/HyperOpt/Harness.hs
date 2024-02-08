@@ -14,6 +14,7 @@ import Data.GHC.HyperOpt.Options
   ( ReifiableOption (MkReifiableOption),
     reifyOptions,
   )
+import Data.GHC.HyperOpt.Options.RTS qualified as RTSOptions
 import Data.GHC.HyperOpt.Options.Tasty qualified as TastyOptions
 import Data.List.NonEmpty (NonEmpty)
 import Data.Semigroup (Semigroup (..))
@@ -121,23 +122,28 @@ cabalBenchmark ::
   -- | Parsed output or error
   IO (Either Text (NonEmpty (Benchmark Natural)))
 cabalBenchmark cwd component ghcOpts rtsOpts =
-  cabalBuild cwd component ghcOpts >>= \case
-    Left err -> pure (Left err)
-    Right () ->
-      cabalListBin cwd component >>= \case
+  let tastyOptions :: [ReifiableOption]
+      tastyOptions =
+        [ (MkReifiableOption TastyOptions.csv "/dev/stdout"),
+          (MkReifiableOption TastyOptions.numThreads 1),
+          (MkReifiableOption TastyOptions.quiet True)
+        ]
+      rtsPrefixOptions :: [ReifiableOption]
+      rtsPrefixOptions =
+        [ (MkReifiableOption RTSOptions.beginRtsOptions True),
+          (MkReifiableOption RTSOptions.collectGcStatistics True)
+        ]
+      rtsSuffixOptions :: [ReifiableOption]
+      rtsSuffixOptions = [(MkReifiableOption RTSOptions.endRtsOptions True)]
+   in cabalBuild cwd component ghcOpts >>= \case
         Left err -> pure (Left err)
-        Right bin ->
-          runBenchmark
-            (Text.unpack bin)
-            ( reifyOptions
-                [ (MkReifiableOption TastyOptions.csv "/dev/stdout"),
-                  (MkReifiableOption TastyOptions.numThreads 1),
-                  (MkReifiableOption TastyOptions.quiet True)
-                ]
-                <> ["+RTS", "-T"]
-                <> reifyOptions rtsOpts
-                <> ["-RTS"]
-            )
+        Right () ->
+          cabalListBin cwd component >>= \case
+            Left err -> pure (Left err)
+            Right bin ->
+              runBenchmark
+                (Text.unpack bin)
+                (reifyOptions (tastyOptions <> rtsPrefixOptions <> rtsOpts <> rtsSuffixOptions))
 
 -- TODO: Accept the current working directory as an argument
 runBenchmark ::
@@ -172,16 +178,11 @@ runBenchmark bin args =
    in withProcessWait benchmarkProc gatherResults
 
 -- >>> runCabalProcess "/Users/connorbaker/Packages/ghc_hyperopt/FibHaskell" ["--version"]
--- (ExitSuccess,"cabal-install version 3.10.2.1\ncompiled using version 3.10.2.1 of the Cabal library \n","")
 
 -- >>> cabalBuild "/Users/connorbaker/Packages/ghc_hyperopt/FibHaskell" "bench:bench-fib" []
--- Right ()
 
 -- >>> cabalListBin "/Users/connorbaker/Packages/ghc_hyperopt/FibHaskell" "bench:bench-fib"
--- Right "/Users/connorbaker/Packages/ghc_hyperopt/FibHaskell/dist-newstyle/build/aarch64-osx/ghc-9.8.1/FibHaskell-0.1.0.0/b/bench-fib/build/bench-fib/bench-fib"
 
 -- >>> cabalBenchmark "/Users/connorbaker/Packages/ghc_hyperopt/FibHaskell" "bench:bench-fib" [] []
--- Right (Benchmark {name = "All.Fibonacci numbers.fifth", results = BenchmarkResults {time = BenchmarkTimeResults {mean = 40419, stdev = 3526}, memory = BenchmarkMemoryResults {allocated = 223, copied = 0, peak = 6291456}}} :| [Benchmark {name = "All.Fibonacci numbers.tenth", results = BenchmarkResults {time = BenchmarkTimeResults {mean = 499470, stdev = 30652}, memory = BenchmarkMemoryResults {allocated = 2319, copied = 0, peak = 6291456}}},Benchmark {name = "All.Fibonacci numbers.twentieth", results = BenchmarkResults {time = BenchmarkTimeResults {mean = 62761499, stdev = 4344064}, memory = BenchmarkMemoryResults {allocated = 283340, copied = 19, peak = 6291456}}}])
 
 -- >>> cabalBenchmark "/Users/connorbaker/Packages/ghc_hyperopt/FibHaskell" "bench:bench-fib" [] [ (MkReifiableOption RTSOptions.nonmovingGC True), (MkReifiableOption RTSOptions.initialThreadStackSize (KiloBytes 100)) ]
--- Right (Benchmark {name = "All.Fibonacci numbers.fifth", results = BenchmarkResults {time = BenchmarkTimeResults {mean = 40821, stdev = 3720}, memory = BenchmarkMemoryResults {allocated = 223, copied = 0, peak = 7340032}}} :| [Benchmark {name = "All.Fibonacci numbers.tenth", results = BenchmarkResults {time = BenchmarkTimeResults {mean = 507415, stdev = 25928}, memory = BenchmarkMemoryResults {allocated = 2319, copied = 0, peak = 7340032}}},Benchmark {name = "All.Fibonacci numbers.twentieth", results = BenchmarkResults {time = BenchmarkTimeResults {mean = 62518457, stdev = 4022628}, memory = BenchmarkMemoryResults {allocated = 283340, copied = 20, peak = 7340032}}}])

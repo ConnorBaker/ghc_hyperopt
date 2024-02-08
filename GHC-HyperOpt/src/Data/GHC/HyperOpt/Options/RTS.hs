@@ -89,6 +89,22 @@ collectGcStatistics =
       flag = FlagSettable
     }
 
+beginRtsOptions :: Option ('MkFlagKind 'WithoutValue Bool)
+beginRtsOptions =
+  MkOption
+    { flagPrefix = "+",
+      flagName = "RTS",
+      flag = FlagSettable
+    }
+
+endRtsOptions :: Option ('MkFlagKind 'WithoutValue Bool)
+endRtsOptions =
+  MkOption
+    { flagPrefix = "-",
+      flagName = "RTS",
+      flag = FlagSettable
+    }
+
 sampleReifiedOptions :: [Text]
 sampleReifiedOptions =
   reifyOptions
